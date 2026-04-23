@@ -1,0 +1,26 @@
+# Secrets
+backend/.env
+frontend/.env.local
+
+# Python
+backend/venv/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / Next
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.turbo/
+
+# pnpm local caches (we keep the local pnpm binary in .pnpm/)
+.pnpm-store/
+.pnpm-cache/
+
+# OS/editor
+.DS_Store
+.vscode/
+
