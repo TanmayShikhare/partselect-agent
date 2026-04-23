@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { TypingDots } from "@/components/TypingDots";
@@ -49,6 +51,54 @@ function Bubble({
         {children}
       </div>
     </div>
+  );
+}
+
+function AssistantMarkdown({ text }: { text: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        h1: ({ children }) => (
+          <h1 className="mt-3 text-base font-semibold first:mt-0">{children}</h1>
+        ),
+        h2: ({ children }) => (
+          <h2 className="mt-3 text-base font-semibold first:mt-0">{children}</h2>
+        ),
+        h3: ({ children }) => (
+          <h3 className="mt-3 text-sm font-semibold first:mt-0">{children}</h3>
+        ),
+        p: ({ children }) => <p className="mt-2 first:mt-0">{children}</p>,
+        ul: ({ children }) => (
+          <ul className="mt-2 list-disc pl-5">{children}</ul>
+        ),
+        ol: ({ children }) => (
+          <ol className="mt-2 list-decimal pl-5">{children}</ol>
+        ),
+        li: ({ children }) => <li className="mt-1">{children}</li>,
+        hr: () => <hr className="my-3 border-zinc-200" />,
+        a: ({ href, children }) => (
+          <a
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            className="font-medium text-[#0066CC] underline underline-offset-2"
+          >
+            {children}
+          </a>
+        ),
+        code: ({ children }) => (
+          <code className="rounded bg-zinc-100 px-1 py-0.5 font-mono text-[13px] text-zinc-900">
+            {children}
+          </code>
+        ),
+        strong: ({ children }) => (
+          <strong className="font-semibold">{children}</strong>
+        ),
+      }}
+    >
+      {text}
+    </ReactMarkdown>
   );
 }
 
@@ -130,7 +180,11 @@ export function ChatShell() {
 
             {messages.map((m, idx) => (
               <Bubble key={idx} role={m.role}>
-                {m.content}
+                {m.role === "assistant" ? (
+                  <AssistantMarkdown text={m.content} />
+                ) : (
+                  m.content
+                )}
               </Bubble>
             ))}
 
