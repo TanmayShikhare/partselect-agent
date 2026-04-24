@@ -3,6 +3,7 @@ from bs4 import BeautifulSoup
 from typing import Optional
 import time
 from urllib.parse import quote_plus
+import os
 
 # Simple in-memory cache
 cache = {}
@@ -24,6 +25,44 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 
+SCRAPINGBEE_API_KEY = os.getenv("SCRAPINGBEE_API_KEY", "").strip()
+
+def is_blocked_html(html: str) -> bool:
+    text_lower = (html or "")[:12000].lower()
+    block_markers = [
+        "access denied",
+        "forbidden",
+        "unusual traffic",
+        "are you a human",
+        "verify you are a human",
+        "captcha",
+        "cloudflare",
+        "akamai",
+        "incapsula",
+        "challenge",
+        "errors.edgesuite.net",
+    ]
+    return any(m in text_lower for m in block_markers)
+
+async def fetch_html_with_scrapingbee(url: str) -> Optional[str]:
+    if not SCRAPINGBEE_API_KEY:
+        return None
+    try:
+        params = {
+            "api_key": SCRAPINGBEE_API_KEY,
+            "url": url,
+            # Avoid JS rendering cost unless absolutely needed
+            "render_js": "false",
+            "block_resources": "true",
+        }
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            resp = await client.get("https://app.scrapingbee.com/api/v1/", params=params)
+            if resp.status_code == 200 and resp.text and not is_blocked_html(resp.text):
+                return resp.text
+    except Exception as e:
+        print(f"ScrapingBee error for {url}: {e}")
+    return None
+
 async def fetch_page(url: str) -> Optional[BeautifulSoup]:
     cached = get_cached(url)
     if cached:
@@ -32,23 +71,15 @@ async def fetch_page(url: str) -> Optional[BeautifulSoup]:
         async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
             response = await client.get(url, headers=HEADERS)
             if response.status_code == 200:
-                # Detect common bot/challenge pages so we don't cache useless HTML.
-                text_lower = (response.text or "")[:8000].lower()
-                block_markers = [
-                    "access denied",
-                    "forbidden",
-                    "unusual traffic",
-                    "are you a human",
-                    "verify you are a human",
-                    "captcha",
-                    "cloudflare",
-                    "akamai",
-                    "incapsula",
-                    "challenge",
-                ]
-                if any(m in text_lower for m in block_markers):
+                if is_blocked_html(response.text):
                     print(f"Blocked or challenge page detected for {url}")
-                    return None
+                    # Retry via ScrapingBee if configured
+                    html = await fetch_html_with_scrapingbee(url)
+                    if not html:
+                        return None
+                    soup = BeautifulSoup(html, "html.parser")
+                    set_cached(url, soup)
+                    return soup
                 soup = BeautifulSoup(response.text, "html.parser")
                 set_cached(url, soup)
                 return soup
