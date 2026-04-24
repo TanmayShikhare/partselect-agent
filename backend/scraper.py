@@ -70,20 +70,23 @@ async def fetch_page(url: str) -> Optional[BeautifulSoup]:
     try:
         async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
             response = await client.get(url, headers=HEADERS)
-            if response.status_code == 200:
-                if is_blocked_html(response.text):
-                    print(f"Blocked or challenge page detected for {url}")
-                    # Retry via ScrapingBee if configured
-                    html = await fetch_html_with_scrapingbee(url)
-                    if not html:
-                        return None
-                    soup = BeautifulSoup(html, "html.parser")
-                    set_cached(url, soup)
-                    return soup
+            if response.status_code == 200 and not is_blocked_html(response.text):
                 soup = BeautifulSoup(response.text, "html.parser")
                 set_cached(url, soup)
                 return soup
-            return None
+
+            # Anything else: attempt ScrapingBee fallback if configured.
+            if response.status_code != 200:
+                print(f"PartSelect fetch status {response.status_code} for {url}")
+            else:
+                print(f"Blocked or challenge page detected for {url}")
+
+            html = await fetch_html_with_scrapingbee(url)
+            if not html:
+                return None
+            soup = BeautifulSoup(html, "html.parser")
+            set_cached(url, soup)
+            return soup
     except Exception as e:
         print(f"Error fetching {url}: {e}")
         return None
