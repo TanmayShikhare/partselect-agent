@@ -32,6 +32,23 @@ async def fetch_page(url: str) -> Optional[BeautifulSoup]:
         async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
             response = await client.get(url, headers=HEADERS)
             if response.status_code == 200:
+                # Detect common bot/challenge pages so we don't cache useless HTML.
+                text_lower = (response.text or "")[:8000].lower()
+                block_markers = [
+                    "access denied",
+                    "forbidden",
+                    "unusual traffic",
+                    "are you a human",
+                    "verify you are a human",
+                    "captcha",
+                    "cloudflare",
+                    "akamai",
+                    "incapsula",
+                    "challenge",
+                ]
+                if any(m in text_lower for m in block_markers):
+                    print(f"Blocked or challenge page detected for {url}")
+                    return None
                 soup = BeautifulSoup(response.text, "html.parser")
                 set_cached(url, soup)
                 return soup

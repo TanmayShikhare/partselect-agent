@@ -1,6 +1,7 @@
 import anthropic
 import json
 import os
+import re
 from dotenv import load_dotenv
 from tools import TOOLS, execute_tool
 
@@ -88,6 +89,28 @@ async def run_agent(messages: list, session_data: dict = {}) -> dict:
             *working_messages,
         ]
 
+    def last_user_model_number(msgs: list) -> str | None:
+        """
+        Extract the most recent model-like token the user provided.
+        We only consider plain string user messages (not tool_result blocks).
+        """
+        pattern = re.compile(r"\b[A-Z0-9]{6,}\b", re.IGNORECASE)
+        for m in reversed(msgs):
+            if m.get("role") != "user":
+                continue
+            content = m.get("content")
+            if not isinstance(content, str):
+                continue
+            # Prefer longer tokens (more likely a real model number)
+            tokens = sorted(set(pattern.findall(content)), key=len, reverse=True)
+            # Filter out obvious non-model noise
+            for t in tokens:
+                up = t.upper()
+                if up.startswith("PS") and up[2:].isdigit():
+                    continue
+                return up
+        return None
+
     # Agentic loop - keep going until we get a final response
     while True:
         response = await client.messages.create(
@@ -115,6 +138,22 @@ async def run_agent(messages: list, session_data: dict = {}) -> dict:
             for block in response.content:
                 if block.type == "tool_use":
                     print(f"Tool called: {block.name} with {block.input}")
+                    # Guardrail: never let the agent invent/alter the model number.
+                    # If the user recently provided a model number, force tools to use it.
+                    user_model = (
+                        (session_data or {}).get("last_model_number")
+                        or last_user_model_number(working_messages)
+                    )
+                    if user_model and isinstance(block.input, dict):
+                        if block.name in {"validate_model_number", "get_model_parts"}:
+                            block.input["model_number"] = user_model
+                        if block.name == "check_compatibility":
+                            block.input["model_number"] = user_model
+                        if block.name == "get_repair_guide":
+                            # Only override if the tool call included a model_number field
+                            if block.input.get("model_number"):
+                                block.input["model_number"] = user_model
+
                     result = await execute_tool(block.name, block.input)
 
                     # Collect parts data for frontend rendering
