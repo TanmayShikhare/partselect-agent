@@ -6,7 +6,7 @@ type Size = "default" | "sm" | "icon";
 
 const variantStyles: Record<Variant, string> = {
   default:
-    "bg-[#0066CC] text-white hover:bg-[#005bb8] disabled:bg-zinc-300 disabled:text-zinc-600",
+    "bg-[#0b6a6a] text-white hover:bg-[#095c5c] disabled:bg-zinc-300 disabled:text-zinc-600",
   secondary:
     "bg-zinc-100 text-zinc-900 hover:bg-zinc-200 disabled:bg-zinc-100 disabled:text-zinc-400",
   outline:
@@ -32,7 +32,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     ref
   ) => {
     const classes = cn(
-      "inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC]/40 disabled:cursor-not-allowed",
+      "inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6a6a]/40 disabled:cursor-not-allowed",
       variantStyles[variant],
       sizeStyles[size],
       className

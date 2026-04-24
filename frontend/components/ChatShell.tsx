@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { TypingDots } from "@/components/TypingDots";
@@ -21,8 +23,8 @@ const SUGGESTIONS: string[] = [
 
 function Avatar() {
   return (
-    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#0066CC] text-xs font-semibold text-white">
-      PS
+    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#0b6a6a] text-xs font-semibold text-white">
+      PA
     </div>
   );
 }
@@ -42,13 +44,50 @@ function Bubble({
         className={[
           "max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm",
           isUser
-            ? "bg-[#0066CC] text-white"
+            ? "bg-[#0b6a6a] text-white"
             : "bg-white text-zinc-900 border border-zinc-200",
         ].join(" ")}
       >
         {children}
       </div>
     </div>
+  );
+}
+
+function AssistantMarkdown({ text }: { text: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        // Disallow headings and other noisy formatting by rendering as plain text blocks.
+        h1: ({ children }) => <p className="mt-2 first:mt-0">{children}</p>,
+        h2: ({ children }) => <p className="mt-2 first:mt-0">{children}</p>,
+        h3: ({ children }) => <p className="mt-2 first:mt-0">{children}</p>,
+        hr: () => null,
+        p: ({ children }) => <p className="mt-2 first:mt-0">{children}</p>,
+        ul: ({ children }) => <ul className="mt-2 list-disc pl-5">{children}</ul>,
+        ol: ({ children }) => <ol className="mt-2 list-decimal pl-5">{children}</ol>,
+        li: ({ children }) => <li className="mt-1">{children}</li>,
+        a: ({ href, children }) => (
+          <a
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            className="font-medium text-[#0b6a6a] underline underline-offset-2"
+          >
+            {children}
+          </a>
+        ),
+        code: ({ children }) => (
+          <span className="rounded bg-zinc-100 px-1 py-0.5 font-mono text-[13px] text-zinc-900">
+            {children}
+          </span>
+        ),
+        strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+      }}
+    >
+      {text}
+    </ReactMarkdown>
   );
 }
 
@@ -91,7 +130,11 @@ export function ChatShell() {
 
       setHistory(res.conversation_history ?? []);
       setMessages((m) => [...m, { role: "assistant", content: res.response || "" }]);
-      setParts(Array.isArray(res.parts) ? res.parts : []);
+      const nextParts = Array.isArray(res.parts) ? res.parts : [];
+      // Avoid rendering low-quality blank cards; require at least a URL and a name/part_number.
+      setParts(
+        nextParts.filter((p) => Boolean(p?.url) && Boolean(p?.name || p?.part_number))
+      );
 
       // Lightweight client-side memory: extract obvious model/part tokens from the user message.
       // The backend still does the authoritative work via tools; this just reduces repeated questions.
@@ -160,7 +203,11 @@ export function ChatShell() {
 
             {messages.map((m, idx) => (
               <Bubble key={idx} role={m.role}>
-                <div className="whitespace-pre-wrap break-words">{m.content}</div>
+                {m.role === "assistant" ? (
+                  <AssistantMarkdown text={m.content} />
+                ) : (
+                  <div className="whitespace-pre-wrap break-words">{m.content}</div>
+                )}
               </Bubble>
             ))}
 
