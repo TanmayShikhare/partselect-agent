@@ -2,13 +2,20 @@ import anthropic
 import json
 import os
 import re
+import httpx
 from dotenv import load_dotenv
 from tools import TOOLS, execute_tool
 
 load_dotenv()
 
 # Use async client to avoid blocking FastAPI's event loop.
-client = anthropic.AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+# IMPORTANT: trust_env=False prevents httpx from picking up any HTTP(S)_PROXY env vars
+# that can break Anthropic calls in some environments.
+_http_client = httpx.AsyncClient(timeout=60.0, trust_env=False)
+client = anthropic.AsyncAnthropic(
+    api_key=os.getenv("ANTHROPIC_API_KEY"),
+    http_client=_http_client,
+)
 
 SYSTEM_PROMPT = """You are a helpful customer service assistant for PartSelect, an e-commerce website that sells appliance parts. You specialize exclusively in Refrigerator and Dishwasher parts.
 
@@ -21,7 +28,9 @@ Your primary functions are:
 
 IMPORTANT RULES:
 - You ONLY help with refrigerator and dishwasher parts. If asked about any other appliance (washer, dryer, oven, microwave, etc.), politely decline and redirect to your area of expertise.
-- Always use your tools to fetch real, live data from PartSelect before answering product questions
+- Prefer tools in this order:
+  1) knowledge_search (offline corpus) for troubleshooting/policies/general guidance or when live access fails
+  2) live PartSelect tools (search_parts/get_part_details/get_model_parts/check_compatibility) when you need confirmed price/stock/compatibility and the site is accessible
 - When showing parts, always include the price, stock status, and a direct link to buy on PartSelect
 - Remember the customer's appliance model number throughout the conversation if they mention it
 - Be warm, helpful, and concise

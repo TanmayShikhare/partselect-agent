@@ -6,6 +6,7 @@ from scraper import (
     check_compatibility,
     validate_model_number,
 )
+from knowledge_store import knowledge_store
 
 # Frontend expects a consistent schema for product cards.
 def normalize_part(part: dict) -> dict:
@@ -30,6 +31,25 @@ def normalize_compatibility(result: dict) -> dict:
 
 # These are the tool definitions we pass to Claude API
 TOOLS = [
+    {
+        "name": "knowledge_search",
+        "description": "Search the offline knowledge base (ingested docs/CSVs/JSONL) for troubleshooting, policies, and cached product info when live PartSelect access is blocked.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "What to search for, e.g. 'WRS325SDHZ ice maker not making ice', 'PS11752778', 'returns policy'"
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "Number of matches to return (max 8).",
+                    "default": 5
+                }
+            },
+            "required": ["query"]
+        }
+    },
     {
         "name": "search_parts",
         "description": "Search for refrigerator or dishwasher parts on PartSelect by keyword, part name, or symptom. Use this when the user is looking for a part but doesn't have a specific part number.",
@@ -132,6 +152,10 @@ TOOLS = [
 async def execute_tool(tool_name: str, tool_input: dict) -> dict:
     """Execute a tool by name with given inputs"""
     try:
+        if tool_name == "knowledge_search":
+            q = tool_input.get("query", "")
+            top_k = tool_input.get("top_k", 5)
+            return knowledge_store().query(q, top_k=top_k)
         if tool_name == "search_parts":
             results = await search_parts(
                 query=tool_input["query"],
