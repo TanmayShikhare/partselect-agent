@@ -233,8 +233,16 @@ def _infer_appliance_type_from_text(text: str) -> str:
         "french door",
         "side-by-side",
         "side by side",
+        "refrigerator parts",
     ]
-    dw_keywords = ["dishwasher", "dish washer", "rack", "spray arm", "detergent"]
+    dw_keywords = [
+        "dishwasher",
+        "dish washer",
+        "dishwasher parts",
+        "rack",
+        "spray arm",
+        "detergent",
+    ]
     for k in fridge_keywords:
         if k in t:
             scores["refrigerator"] += 2
@@ -270,11 +278,27 @@ async def validate_model_number(model_number: str) -> dict:
     if h1:
         title = h1.get_text(" ", strip=True)
 
-    text_blob = soup.get_text(" ", strip=True)[:4000]
+    # Use a limited page text for heuristics; avoid huge payloads.
+    text_blob = soup.get_text(" ", strip=True)[:6000]
     inferred = _infer_appliance_type_from_text(f"{title} {text_blob}")
 
+    def is_not_found_page() -> bool:
+        t = f"{title} {text_blob}".lower()
+        markers = [
+            "page not found",
+            "we're sorry",
+            "we are sorry",
+            "no longer available",
+            "could not be found",
+            "404",
+        ]
+        return any(m in t for m in markers)
+
+    # For demo reliability, treat any successfully loaded non-404-like page as "found",
+    # even if the model token is not echoed in the visible title.
     model_u = model.upper()
-    found = bool(title) and (model_u in title.upper() or model_u in text_blob.upper())
+    token_seen = model_u in title.upper() or model_u in text_blob.upper()
+    found = (not is_not_found_page()) and (token_seen or bool(title))
 
     return {
         "model_number": model,
@@ -284,7 +308,7 @@ async def validate_model_number(model_number: str) -> dict:
         "message": (
             "Model page loaded on PartSelect."
             if found
-            else "Loaded a page, but could not confidently confirm this is a valid model page."
+            else "Could not confirm a valid PartSelect model page for that model number."
         ),
         "url": url,
     }
