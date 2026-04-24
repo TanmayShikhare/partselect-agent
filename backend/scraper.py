@@ -4,6 +4,7 @@ from typing import Optional
 import time
 from urllib.parse import quote_plus
 import os
+import re
 
 # Simple in-memory cache
 cache = {}
@@ -242,12 +243,25 @@ async def fetch_page(url: str) -> Optional[BeautifulSoup]:
         return None
 
 async def get_part_details(part_number: str) -> dict:
-    clean_number = part_number.replace("PS", "").strip()
-    url = f"https://www.partselect.com/PS{clean_number}.htm"
+    raw = (part_number or "").strip()
+    upper = raw.upper()
+
+    # PartSelect supports multiple identifiers:
+    # - PartSelect numbers like PS11752778 -> /PS11752778.htm
+    # - OEM/manufacturer numbers like W11478319 -> /partdetail/W11478319/
+    if re.fullmatch(r"PS\d+", upper):
+        clean_number = upper.replace("PS", "").strip()
+        url = f"https://www.partselect.com/PS{clean_number}.htm"
+        normalized_part_number = f"PS{clean_number}"
+    else:
+        safe = quote_plus(raw)
+        url = f"https://www.partselect.com/partdetail/{safe}/"
+        normalized_part_number = raw
+
     soup = await fetch_page(url)
     if not soup:
         return {"error": f"Could not find part {part_number}"}
-    result = {"part_number": f"PS{clean_number}", "url": url}
+    result = {"part_number": normalized_part_number, "url": url}
     try:
         title = soup.find("h1", class_="title-lg")
         if title:
