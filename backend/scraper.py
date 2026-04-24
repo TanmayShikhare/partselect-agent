@@ -66,7 +66,9 @@ async def fetch_html_with_scrapingbee(
             params["premium_proxy"] = "true"
         if country_code:
             params["country_code"] = country_code
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=30.0, follow_redirects=True, trust_env=False
+        ) as client:
             resp = await client.get("https://app.scrapingbee.com/api/v1/", params=params)
             if resp.status_code == 200 and resp.text and not is_blocked_html(resp.text):
                 print(
@@ -74,9 +76,11 @@ async def fetch_html_with_scrapingbee(
                     f"for {url} (bytes={len(resp.text)})"
                 )
                 return resp.text
+            body_snippet = (resp.text or "")[:300].replace("\n", " ").replace("\r", " ")
             print(
                 f"ScrapingBee failed (render_js={render_js}, premium_proxy={premium_proxy}, country={country_code}) "
                 f"for {url} (status={resp.status_code}, bytes={len(resp.text or '')})"
+                f" (body_snippet={body_snippet!r})"
             )
     except Exception as e:
         print(
@@ -128,7 +132,9 @@ async def fetch_html_with_zenrows(
                 "accept-language": "en-US,en;q=0.9",
             }
 
-        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=60.0, follow_redirects=True, trust_env=False
+        ) as client:
             resp = await client.get(
                 "https://api.zenrows.com/v1/",
                 params=params,
