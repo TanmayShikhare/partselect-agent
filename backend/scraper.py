@@ -87,7 +87,9 @@ async def fetch_html_with_scrapingbee(
 
 async def fetch_html_with_zenrows(
     url: str,
+    mode: str | None,
     js_render: bool,
+    antibot: bool,
     premium_proxy: bool,
     proxy_country: str | None,
 ) -> Optional[str]:
@@ -101,8 +103,12 @@ async def fetch_html_with_zenrows(
             # (ZenRows docs: original_status=true)
             "original_status": "true",
         }
+        if mode:
+            params["mode"] = mode
         if js_render:
             params["js_render"] = "true"
+        if antibot:
+            params["antibot"] = "true"
         if premium_proxy:
             params["premium_proxy"] = "true"
             # Give JS challenges a moment to run on heavily protected sites.
@@ -129,37 +135,59 @@ async def fetch_html_with_zenrows(
             )
             if resp.status_code == 200 and resp.text and not is_blocked_html(resp.text):
                 print(
-                    f"ZenRows success (js_render={js_render}, premium_proxy={premium_proxy}, proxy_country={proxy_country}) "
+                    f"ZenRows success (mode={mode}, js_render={js_render}, antibot={antibot}, premium_proxy={premium_proxy}, proxy_country={proxy_country}) "
                     f"for {url} (bytes={len(resp.text)})"
                 )
                 return resp.text
+            body_snippet = (resp.text or "")[:300].replace("\n", " ").replace("\r", " ")
             print(
-                f"ZenRows failed (js_render={js_render}, premium_proxy={premium_proxy}, proxy_country={proxy_country}) "
+                f"ZenRows failed (mode={mode}, js_render={js_render}, antibot={antibot}, premium_proxy={premium_proxy}, proxy_country={proxy_country}) "
                 f"for {url} (status={resp.status_code}, bytes={len(resp.text or '')}) "
                 f"(original_status={resp.headers.get('x-zenrows-original-status') or resp.headers.get('x-original-status')})"
+                f" (body_snippet={body_snippet!r})"
             )
     except Exception as e:
         print(
-            f"ZenRows error (js_render={js_render}, premium_proxy={premium_proxy}, proxy_country={proxy_country}) "
+            f"ZenRows error (mode={mode}, js_render={js_render}, antibot={antibot}, premium_proxy={premium_proxy}, proxy_country={proxy_country}) "
             f"for {url}: {e}"
         )
     return None
 
 
 async def fetch_html_via_zenrows(url: str) -> Optional[str]:
-    # ZenRows: try fast first, then escalate.
+    # ZenRows: PartSelect is heavily protected; prefer high-success configs.
+    # 1) Adaptive stealth: ZenRows chooses JS/premium automatically.
     html = await fetch_html_with_zenrows(
-        url, js_render=False, premium_proxy=False, proxy_country=None
+        url,
+        mode="auto",
+        js_render=False,
+        antibot=False,
+        premium_proxy=False,
+        proxy_country="us",
     )
     if html:
         return html
+
+    # 2) Manual "hard mode": antibot + JS + residential.
     html = await fetch_html_with_zenrows(
-        url, js_render=True, premium_proxy=False, proxy_country=None
+        url,
+        mode=None,
+        js_render=True,
+        antibot=True,
+        premium_proxy=True,
+        proxy_country="us",
     )
     if html:
         return html
+
+    # 3) Country fallback (sometimes US residential ranges are burned).
     return await fetch_html_with_zenrows(
-        url, js_render=True, premium_proxy=True, proxy_country="us"
+        url,
+        mode=None,
+        js_render=True,
+        antibot=True,
+        premium_proxy=True,
+        proxy_country="ca",
     )
 
 
