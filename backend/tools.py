@@ -18,6 +18,16 @@ def normalize_part(part: dict) -> dict:
         "image": part.get("image", "") or "",
     }
 
+# Normalize compatibility tool output for frontend/LLM consumption.
+def normalize_compatibility(result: dict) -> dict:
+    if not isinstance(result, dict):
+        return {"error": "invalid compatibility result"}
+    out = dict(result)
+    # Ensure compatible is one of: True, False, None
+    if out.get("compatible") not in (True, False, None):
+        out["compatible"] = None
+    return out
+
 # These are the tool definitions we pass to Claude API
 TOOLS = [
     {
@@ -153,10 +163,10 @@ async def execute_tool(tool_name: str, tool_input: dict) -> dict:
                 data["recommended_parts"] = [normalize_part(p) for p in data["recommended_parts"]]
             return data
         elif tool_name == "check_compatibility":
-            return await check_compatibility(
+            return normalize_compatibility(await check_compatibility(
                 part_number=tool_input["part_number"],
                 model_number=tool_input["model_number"]
-            )
+            ))
         else:
             return {"error": f"Unknown tool: {tool_name}"}
     except Exception as e:

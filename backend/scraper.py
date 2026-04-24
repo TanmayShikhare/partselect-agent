@@ -248,26 +248,67 @@ async def check_compatibility(part_number: str, model_number: str) -> dict:
     url = f"https://www.partselect.com/PS{clean_number}.htm?ModelNum={quote_plus(model_number)}"
     soup = await fetch_page(url)
     if not soup:
-        return {"error": "Could not check compatibility"}
+        return {
+            "part_number": f"PS{clean_number}",
+            "model_number": model_number,
+            "compatible": None,
+            "message": "Could not retrieve the PartSelect compatibility page (possibly blocked).",
+            "url": url,
+        }
     result = {
         "part_number": f"PS{clean_number}",
         "model_number": model_number,
-        "compatible": False,
+        "compatible": None,
         "message": "",
         "url": url
     }
     try:
+        page_text = soup.get_text(" ", strip=True).lower()
+
+        # 1) Try the most specific section first (legacy selector).
         compat_section = soup.find("div", class_="pd__crossref__model")
         if compat_section:
-            text = compat_section.get_text(strip=True).lower()
+            text = compat_section.get_text(" ", strip=True).lower()
             if model_number.lower() in text:
                 result["compatible"] = True
                 result["message"] = f"Part PS{clean_number} is compatible with model {model_number}."
-            else:
+                return result
+
+        # 2) Fallback heuristics: look for explicit fit language.
+        fit_positive_markers = [
+            "compatible",
+            "fits your model",
+            "will work with",
+            "will fit",
+            "is compatible",
+        ]
+        fit_negative_markers = [
+            "not compatible",
+            "does not fit",
+            "will not fit",
+            "won't fit",
+            "will not work",
+            "does not work",
+        ]
+
+        if model_number.lower() in page_text:
+            if any(m in page_text for m in fit_negative_markers):
                 result["compatible"] = False
-                result["message"] = f"Part PS{clean_number} may not be compatible with model {model_number}. Please verify on PartSelect."
-        else:
-            result["message"] = f"Please verify compatibility of PS{clean_number} with model {model_number} on PartSelect."
+                result["message"] = (
+                    f"Part PS{clean_number} does not appear compatible with model {model_number}."
+                )
+                return result
+            if any(m in page_text for m in fit_positive_markers):
+                result["compatible"] = True
+                result["message"] = f"Part PS{clean_number} appears compatible with model {model_number}."
+                return result
+
+        # 3) Unknown: return a clear, honest message with the exact URL.
+        result["compatible"] = None
+        result["message"] = (
+            f"I couldn't automatically confirm compatibility for PS{clean_number} with model {model_number}. "
+            f"Please verify on PartSelect using the compatibility checker on that page."
+        )
     except Exception as e:
         print(f"Error checking compatibility: {e}")
     return result
