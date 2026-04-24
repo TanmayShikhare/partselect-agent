@@ -96,6 +96,12 @@ def iter_knowledge_chunks(raw_dir: Path) -> Iterable[KnowledgeChunk]:
         ext = path.suffix.lower()
         rel = str(path.relative_to(raw_dir))
 
+        # Don't index URL inventories; index content corpora/docs instead.
+        if rel.startswith("urls_local/") or rel.startswith("urls/") or rel.startswith(
+            "sitemaps/"
+        ):
+            continue
+
         try:
             if ext in {".md", ".txt"}:
                 text = _read_text(path)
@@ -156,6 +162,13 @@ class KnowledgeStore:
         self.index_dir = (base / index_dir).resolve()
         self.collection_name = collection
         self.embed_model_name = embed_model
+
+        # Ensure model caches are writable in constrained environments.
+        hf_home = (base / "knowledge" / ".hf").resolve()
+        os.environ.setdefault("HF_HOME", str(hf_home))
+        os.environ.setdefault(
+            "SENTENCE_TRANSFORMERS_HOME", str(hf_home / "sentence-transformers")
+        )
 
         self._embedder: Optional[SentenceTransformer] = None
         self._client = chromadb.PersistentClient(
