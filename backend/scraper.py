@@ -2,6 +2,7 @@ import httpx
 from bs4 import BeautifulSoup
 from typing import Optional
 import time
+from urllib.parse import quote_plus
 
 # Simple in-memory cache
 cache = {}
@@ -81,10 +82,10 @@ async def get_part_details(part_number: str) -> dict:
     return result
 
 async def search_parts(query: str, appliance_type: str = "") -> list:
-    search_query = query.replace(" ", "+")
+    search_query = query.strip()
     if appliance_type:
-        search_query += f"+{appliance_type.replace(' ', '+')}"
-    url = f"https://www.partselect.com/api/search/?searchterm={search_query}&type=parts"
+        search_query = f"{search_query} {appliance_type}".strip()
+    url = f"https://www.partselect.com/api/search/?searchterm={quote_plus(search_query)}&type=parts"
     cached = get_cached(url)
     if cached:
         return cached
@@ -95,13 +96,14 @@ async def search_parts(query: str, appliance_type: str = "") -> list:
                 data = response.json()
                 parts = []
                 for item in data.get("Parts", [])[:6]:
+                    ps = (item.get("PartSelectNumber", "") or "").strip()
                     parts.append({
                         "name": item.get("Name", ""),
-                        "part_number": item.get("PartSelectNumber", ""),
+                        "part_number": ps,
                         "manufacturer_number": item.get("ManufacturerPartNumber", ""),
                         "price": item.get("SalePrice", ""),
                         "stock": item.get("Availability", ""),
-                        "url": f"https://www.partselect.com/{item.get('PartSelectNumber', '')}.htm",
+                        "url": f"https://www.partselect.com/{ps}.htm" if ps else "",
                         "image": item.get("SmallImageUrl", "")
                     })
                 set_cached(url, parts)
@@ -111,7 +113,7 @@ async def search_parts(query: str, appliance_type: str = "") -> list:
     return []
 
 async def get_model_parts(model_number: str) -> dict:
-    url = f"https://www.partselect.com/Models/{model_number}/"
+    url = f"https://www.partselect.com/Models/{quote_plus(model_number)}/"
     cached = get_cached(url)
     if cached:
         return cached
@@ -132,6 +134,16 @@ async def get_model_parts(model_number: str) -> dict:
             link = part.find("a")
             if link:
                 part_data["url"] = "https://www.partselect.com" + link.get("href", "")
+            # Best-effort PS number extraction from URL
+            href = (link.get("href", "") if link else "") or ""
+            if "/PS" in href.upper():
+                try:
+                    tail = href.split("/PS", 1)[1]
+                    digits = "".join([c for c in tail if c.isdigit()])
+                    if digits:
+                        part_data["part_number"] = f"PS{digits}"
+                except Exception:
+                    pass
             if part_data:
                 result["parts"].append(part_data)
     except Exception as e:
@@ -141,8 +153,11 @@ async def get_model_parts(model_number: str) -> dict:
 
 async def get_repair_guide(model_number: str, symptom: str) -> dict:
     symptom_slug = symptom.lower().replace(" ", "-")
-    url = f"https://www.partselect.com/Models/{model_number}/Symptoms/{symptom_slug}/"
-    soup = await fetch_page(url)
+    url = ""
+    soup = None
+    if model_number:
+        url = f"https://www.partselect.com/Models/{quote_plus(model_number)}/Symptoms/{symptom_slug}/"
+        soup = await fetch_page(url)
     if not soup:
         url = f"https://www.partselect.com/Repair/{symptom_slug}/"
         soup = await fetch_page(url)
@@ -179,7 +194,7 @@ async def get_repair_guide(model_number: str, symptom: str) -> dict:
 
 async def check_compatibility(part_number: str, model_number: str) -> dict:
     clean_number = part_number.replace("PS", "").strip()
-    url = f"https://www.partselect.com/PS{clean_number}.htm?ModelNum={model_number}"
+    url = f"https://www.partselect.com/PS{clean_number}.htm?ModelNum={quote_plus(model_number)}"
     soup = await fetch_page(url)
     if not soup:
         return {"error": "Could not check compatibility"}
@@ -205,3 +220,71 @@ async def check_compatibility(part_number: str, model_number: str) -> dict:
     except Exception as e:
         print(f"Error checking compatibility: {e}")
     return result
+
+
+def _infer_appliance_type_from_text(text: str) -> str:
+    t = (text or "").lower()
+    scores = {"refrigerator": 0, "dishwasher": 0}
+    fridge_keywords = [
+        "refrigerator",
+        "fridge",
+        "freezer",
+        "ice maker",
+        "french door",
+        "side-by-side",
+        "side by side",
+    ]
+    dw_keywords = ["dishwasher", "dish washer", "rack", "spray arm", "detergent"]
+    for k in fridge_keywords:
+        if k in t:
+            scores["refrigerator"] += 2
+    for k in dw_keywords:
+        if k in t:
+            scores["dishwasher"] += 2
+    if scores["refrigerator"] == 0 and scores["dishwasher"] == 0:
+        return "unknown"
+    return "refrigerator" if scores["refrigerator"] >= scores["dishwasher"] else "dishwasher"
+
+
+async def validate_model_number(model_number: str) -> dict:
+    """
+    Best-effort validation of a PartSelect model page.
+    Returns evidence fields the LLM can use to avoid guessing appliance type.
+    """
+    model = (model_number or "").strip()
+    if not model:
+        return {"error": "model_number is required"}
+
+    url = f"https://www.partselect.com/Models/{quote_plus(model)}/"
+    soup = await fetch_page(url)
+    if not soup:
+        return {
+            "model_number": model,
+            "found": False,
+            "message": "Could not load a PartSelect model page for that model number.",
+            "url": url,
+        }
+
+    title = ""
+    h1 = soup.find("h1")
+    if h1:
+        title = h1.get_text(" ", strip=True)
+
+    text_blob = soup.get_text(" ", strip=True)[:4000]
+    inferred = _infer_appliance_type_from_text(f"{title} {text_blob}")
+
+    model_u = model.upper()
+    found = bool(title) and (model_u in title.upper() or model_u in text_blob.upper())
+
+    return {
+        "model_number": model,
+        "found": found,
+        "title": title,
+        "inferred_appliance_type": inferred,
+        "message": (
+            "Model page loaded on PartSelect."
+            if found
+            else "Loaded a page, but could not confidently confirm this is a valid model page."
+        ),
+        "url": url,
+    }

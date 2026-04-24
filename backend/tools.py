@@ -3,7 +3,8 @@ from scraper import (
     search_parts,
     get_model_parts,
     get_repair_guide,
-    check_compatibility
+    check_compatibility,
+    validate_model_number,
 )
 
 # Frontend expects a consistent schema for product cards.
@@ -55,6 +56,20 @@ TOOLS = [
     {
         "name": "get_model_parts",
         "description": "Get the most commonly replaced parts for a specific appliance model number. Use this when the user provides their appliance model number and wants to know what parts are available.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "model_number": {
+                    "type": "string",
+                    "description": "The appliance model number e.g. 'WDT780SAEM1'"
+                }
+            },
+            "required": ["model_number"]
+        }
+    },
+    {
+        "name": "validate_model_number",
+        "description": "Validate a PartSelect model number by loading the model page and extracting basic evidence (title + best-effort appliance type inference). Use this before assuming whether a model is a refrigerator or dishwasher.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -127,6 +142,8 @@ async def execute_tool(tool_name: str, tool_input: dict) -> dict:
             if isinstance(data, dict) and "parts" in data and isinstance(data["parts"], list):
                 data["parts"] = [normalize_part(p) for p in data["parts"]]
             return data
+        elif tool_name == "validate_model_number":
+            return await validate_model_number(model_number=tool_input["model_number"])
         elif tool_name == "get_repair_guide":
             data = await get_repair_guide(
                 model_number=tool_input.get("model_number", ""),

@@ -1,8 +1,6 @@
 "use client";
 
 import * as React from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { TypingDots } from "@/components/TypingDots";
@@ -54,60 +52,15 @@ function Bubble({
   );
 }
 
-function AssistantMarkdown({ text }: { text: string }) {
-  return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      components={{
-        h1: ({ children }) => (
-          <h1 className="mt-3 text-base font-semibold first:mt-0">{children}</h1>
-        ),
-        h2: ({ children }) => (
-          <h2 className="mt-3 text-base font-semibold first:mt-0">{children}</h2>
-        ),
-        h3: ({ children }) => (
-          <h3 className="mt-3 text-sm font-semibold first:mt-0">{children}</h3>
-        ),
-        p: ({ children }) => <p className="mt-2 first:mt-0">{children}</p>,
-        ul: ({ children }) => (
-          <ul className="mt-2 list-disc pl-5">{children}</ul>
-        ),
-        ol: ({ children }) => (
-          <ol className="mt-2 list-decimal pl-5">{children}</ol>
-        ),
-        li: ({ children }) => <li className="mt-1">{children}</li>,
-        hr: () => <hr className="my-3 border-zinc-200" />,
-        a: ({ href, children }) => (
-          <a
-            href={href}
-            target="_blank"
-            rel="noreferrer"
-            className="font-medium text-[#0066CC] underline underline-offset-2"
-          >
-            {children}
-          </a>
-        ),
-        code: ({ children }) => (
-          <code className="rounded bg-zinc-100 px-1 py-0.5 font-mono text-[13px] text-zinc-900">
-            {children}
-          </code>
-        ),
-        strong: ({ children }) => (
-          <strong className="font-semibold">{children}</strong>
-        ),
-      }}
-    >
-      {text}
-    </ReactMarkdown>
-  );
-}
-
 export function ChatShell() {
   const [input, setInput] = React.useState("");
   const [messages, setMessages] = React.useState<ChatMessage[]>([]);
   const [history, setHistory] = React.useState<
     Array<{ role: string; content: unknown }>
   >([]);
+  const [sessionData, setSessionData] = React.useState<Record<string, unknown>>(
+    {}
+  );
   const [parts, setParts] = React.useState<PartCard[]>([]);
   const [isLoading, setIsLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -133,12 +86,39 @@ export function ChatShell() {
       const res: ChatResponse = await postChat({
         message: trimmed,
         conversation_history: history,
-        session_data: {},
+        session_data: sessionData,
       });
 
       setHistory(res.conversation_history ?? []);
       setMessages((m) => [...m, { role: "assistant", content: res.response || "" }]);
       setParts(Array.isArray(res.parts) ? res.parts : []);
+
+      // Lightweight client-side memory: extract obvious model/part tokens from the user message.
+      // The backend still does the authoritative work via tools; this just reduces repeated questions.
+      setSessionData((prev) => {
+        const next = { ...prev };
+        const upper = trimmed.toUpperCase();
+
+        const psMatch = upper.match(/\bPS\d{5,}\b/);
+        if (psMatch) next.last_part_number = psMatch[0];
+
+        const modelMatch = upper.match(/\b[A-Z0-9]{6,}\b/g);
+        if (modelMatch) {
+          // Heuristic: pick the longest token that looks like a model number.
+          const best = modelMatch.sort((a, b) => b.length - a.length)[0];
+          if (best && best !== (next.last_part_number as string | undefined)) {
+            next.last_model_number = best;
+          }
+        }
+
+        if (/\bFRIDGE\b|\bREFRIGERATOR\b|\bFREEZER\b|\bICE MAKER\b/i.test(trimmed)) {
+          next.user_stated_appliance = "refrigerator";
+        } else if (/\bDISHWASHER\b/i.test(trimmed)) {
+          next.user_stated_appliance = "dishwasher";
+        }
+
+        return next;
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
@@ -180,11 +160,7 @@ export function ChatShell() {
 
             {messages.map((m, idx) => (
               <Bubble key={idx} role={m.role}>
-                {m.role === "assistant" ? (
-                  <AssistantMarkdown text={m.content} />
-                ) : (
-                  m.content
-                )}
+                <div className="whitespace-pre-wrap break-words">{m.content}</div>
               </Bubble>
             ))}
 

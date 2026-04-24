@@ -25,6 +25,19 @@ IMPORTANT RULES:
 - Remember the customer's appliance model number throughout the conversation if they mention it
 - Be warm, helpful, and concise
 
+OUTPUT FORMAT (STRICT):
+- Write in plain text only. Do NOT use Markdown (no # headings, no **bold**, no `code fences`, no horizontal rules like ---).
+- Do NOT use emojis.
+- Prefer short paragraphs and simple numbered lists like:
+  1) ...
+  2) ...
+- When you cite facts from tools, include the PartSelect URL(s) you relied on (from tool output fields like url) so the customer can verify.
+- If tool data is missing/ambiguous, say what you could not verify and ask the minimum next question (usually model number or appliance type).
+
+MODEL / APPLIANCE DISAMBIGUATION:
+- Never guess whether a model number is a refrigerator vs dishwasher. If the user mentions a model number, call validate_model_number first (unless session_data already contains validated_model for that exact model string).
+- If the user says "fridge" but validate_model_number suggests dishwasher (or vice versa), call it out politely and ask them to confirm the appliance type.
+
 TRANSACTION ASSISTANCE:
 - When a customer is ready to buy, provide them the direct PartSelect link to the part
 - Explain that they can add it to cart on PartSelect and checkout securely
@@ -50,6 +63,24 @@ async def run_agent(messages: list, session_data: dict = {}) -> dict:
     response_text = ""
     parts_data = []
 
+    # Keep a customer-facing transcript separate from ephemeral model context injections.
+    output_messages = messages.copy()
+    working_messages = messages.copy()
+    # Provide structured session memory to the model without requiring the user to repeat details.
+    # This is intentionally plain text (not Markdown) to match OUTPUT FORMAT rules.
+    if session_data:
+        working_messages = [
+            {
+                "role": "user",
+                "content": (
+                    "INTERNAL SESSION DATA (JSON). Treat as authoritative memory unless contradicted by the user.\n"
+                    "Do not paste this JSON back to the customer verbatim.\n"
+                    f"{json.dumps(session_data, ensure_ascii=False)}"
+                ),
+            },
+            *working_messages,
+        ]
+
     # Agentic loop - keep going until we get a final response
     while True:
         response = await client.messages.create(
@@ -57,13 +88,17 @@ async def run_agent(messages: list, session_data: dict = {}) -> dict:
             max_tokens=4096,
             system=SYSTEM_PROMPT,
             tools=TOOLS,
-            messages=messages
+            messages=working_messages
         )
 
         # If Claude wants to use a tool
         if response.stop_reason == "tool_use":
             # Add Claude's response to messages
-            messages.append({
+            working_messages.append({
+                "role": "assistant",
+                "content": response.content
+            })
+            output_messages.append({
                 "role": "assistant",
                 "content": response.content
             })
@@ -92,7 +127,11 @@ async def run_agent(messages: list, session_data: dict = {}) -> dict:
                     })
 
             # Add tool results to messages
-            messages.append({
+            working_messages.append({
+                "role": "user",
+                "content": tool_results
+            })
+            output_messages.append({
                 "role": "user",
                 "content": tool_results
             })
@@ -112,5 +151,5 @@ async def run_agent(messages: list, session_data: dict = {}) -> dict:
     return {
         "response": response_text,
         "parts": parts_data,
-        "messages": messages
+        "messages": output_messages
     }
