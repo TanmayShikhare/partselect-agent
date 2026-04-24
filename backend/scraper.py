@@ -242,6 +242,26 @@ async def fetch_page(url: str) -> Optional[BeautifulSoup]:
         print(f"Error fetching {url}: {e}")
         return None
 
+async def resolve_partselect_url(query: str) -> str | None:
+    """
+    Mimic PartSelect's own behavior: hit /api/search and follow redirects to the canonical page.
+    This is the key trick used by some working projects: it avoids us guessing URL patterns.
+    """
+    q = (query or "").strip()
+    if not q:
+        return None
+    try:
+        search_url = f"https://www.partselect.com/api/search/?searchterm={quote_plus(q)}"
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            resp = await client.get(search_url, headers=HEADERS)
+            if resp.status_code in (200, 302, 301) and resp.url:
+                final_url = str(resp.url)
+                if "partselect.com" in final_url:
+                    return final_url
+    except Exception as e:
+        print(f"Resolve URL error for {query}: {e}")
+    return None
+
 async def get_part_details(part_number: str) -> dict:
     raw = (part_number or "").strip()
     upper = raw.upper()
@@ -254,8 +274,13 @@ async def get_part_details(part_number: str) -> dict:
         url = f"https://www.partselect.com/PS{clean_number}.htm"
         normalized_part_number = f"PS{clean_number}"
     else:
-        safe = quote_plus(raw)
-        url = f"https://www.partselect.com/partdetail/{safe}/"
+        # First try resolving via PartSelect's own search redirect.
+        resolved = await resolve_partselect_url(raw)
+        if resolved:
+            url = resolved
+        else:
+            safe = quote_plus(raw)
+            url = f"https://www.partselect.com/partdetail/{safe}/"
         normalized_part_number = raw
 
     soup = await fetch_page(url)
