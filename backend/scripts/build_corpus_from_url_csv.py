@@ -90,6 +90,26 @@ def _safe_out_name(stem: str) -> str:
     return s[:120] or "corpus"
 
 
+def _load_seen_urls_from_jsonl(path: Path) -> set[str]:
+    if not path.exists():
+        return set()
+    seen: set[str] = set()
+    with path.open("r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except Exception:
+                continue
+            u = (obj.get("url") if isinstance(obj, dict) else None) or ""
+            u = str(u).strip()
+            if u:
+                seen.add(u)
+    return seen
+
+
 async def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument(
@@ -98,9 +118,19 @@ async def main() -> None:
         help="Directory containing *_urls.csv (relative to backend/)",
     )
     ap.add_argument(
+        "--csv-glob",
+        default="*_urls.csv",
+        help="Which CSV files to ingest from csv-dir (glob pattern)",
+    )
+    ap.add_argument(
         "--out",
         default="knowledge/raw/data/url_corpus.jsonl",
         help="Output JSONL path (relative to backend/)",
+    )
+    ap.add_argument(
+        "--resume",
+        action="store_true",
+        help="Skip URLs already present in the output JSONL",
     )
     ap.add_argument(
         "--limit",
@@ -120,7 +150,27 @@ async def main() -> None:
         default=250,
         help="Delay between requests (politeness/backoff)",
     )
+    ap.add_argument(
+        "--progress-every",
+        type=int,
+        default=25,
+        help="Print progress every N attempted URLs",
+    )
     args = ap.parse_args()
+
+    # Fail fast if the chosen provider can't possibly work.
+    if args.provider in {"zenrows", "any"}:
+        if not (str(__import__("os").environ.get("ZENROWS_API_KEY", "")).strip()):
+            if args.provider == "zenrows":
+                raise SystemExit(
+                    "ZENROWS_API_KEY is not set. Add it to backend/.env to use --provider zenrows."
+                )
+    if args.provider in {"scrapingbee", "any"}:
+        if not (str(__import__("os").environ.get("SCRAPINGBEE_API_KEY", "")).strip()):
+            if args.provider == "scrapingbee":
+                raise SystemExit(
+                    "SCRAPINGBEE_API_KEY is not set. Add it to backend/.env to use --provider scrapingbee."
+                )
 
     base = Path(__file__).resolve().parents[1]
     csv_dir = (base / args.csv_dir).resolve()
@@ -130,11 +180,15 @@ async def main() -> None:
     if not csv_dir.exists():
         raise SystemExit(f"CSV dir not found: {csv_dir}")
 
-    csv_files = sorted(csv_dir.glob("*_urls.csv"))
+    csv_files = sorted(csv_dir.glob(args.csv_glob))
     if not csv_files:
-        raise SystemExit(f"No *_urls.csv files found in: {csv_dir}")
+        raise SystemExit(f"No CSVs matched {args.csv_glob!r} in: {csv_dir}")
 
     seen: set[str] = set()
+    if args.resume:
+        seen = _load_seen_urls_from_jsonl(out_path)
+        print(f"Resume enabled. Preloaded {len(seen)} URLs from {out_path}")
+
     total = 0
     ok = 0
     blocked = 0
@@ -181,10 +235,16 @@ async def main() -> None:
                     "text": text,
                 }
                 out.write(json.dumps(row, ensure_ascii=False) + "\n")
+                out.flush()
                 ok += 1
 
                 if args.sleep_ms:
                     time.sleep(args.sleep_ms / 1000.0)
+
+                if args.progress_every and (total % args.progress_every == 0):
+                    print(
+                        f"progress: attempted={total} ok={ok} blocked={blocked} failed={failed}"
+                    )
 
             if args.limit and total >= args.limit:
                 break

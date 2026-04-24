@@ -10,6 +10,9 @@ backend/venv/
 .mypy_cache/
 .ruff_cache/
 
+# Local RAG artifacts (can be very large)
+backend/knowledge/
+
 # Node / Next
 frontend/node_modules/
 frontend/.next/

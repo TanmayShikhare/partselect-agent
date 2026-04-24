@@ -4,7 +4,6 @@ import argparse
 import csv
 import gzip
 import io
-import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Iterator
@@ -18,9 +17,47 @@ def _iter_loc_text(xml_bytes: bytes) -> Iterator[str]:
         elem.clear()
 
 
-def _filter_in_scope(url: str) -> bool:
-    u = url.lower()
-    return ("refrigerator" in u) or ("dishwasher" in u)
+def _filter_in_scope(url: str, category: str) -> bool:
+    """
+    Decide whether a URL is in-scope for this project.
+
+    Important: PartSelect model pages live under /Models/... and usually do NOT contain the
+    literal words "refrigerator" or "dishwasher" in the URL. Those URLs arrive via the Models
+    sitemap bucket, so we treat the *sitemap category* as part of the scope signal.
+    """
+    u = (url or "").strip()
+    ul = u.lower()
+
+    # Global exclusions (best-effort): keep the corpus aligned with the agent scope.
+    out = (
+        "/washer",
+        "/dryer",
+        "/oven",
+        "/range",
+        "/microwave",
+        "/air-conditioner",
+        "/furnace",
+        "/water-heater",
+    )
+    if any(x in ul for x in out):
+        return False
+
+    # Models sitemap: keep model pages.
+    if category == "models":
+        return "/models/" in ul
+
+    # Parts sitemap: keep PartSelect part pages (PS...) and OEM-style partdetail pages.
+    if category == "parts":
+        if "partselect.com" not in ul:
+            return False
+        if "/ps" in ul and ".htm" in ul:
+            return True
+        if "/partdetail/" in ul:
+            return True
+        return ("refrigerator" in ul) or ("dishwasher" in ul)
+
+    # Default: keyword gate (works well for blogs/repairs/category/ptls pages).
+    return ("refrigerator" in ul) or ("dishwasher" in ul)
 
 
 def write_csv(path: Path, urls: list[str]) -> int:
@@ -84,7 +121,7 @@ def main() -> None:
         raw = gzip.decompress(gz_path.read_bytes())
         count = 0
         for url in _iter_loc_text(raw):
-            if not _filter_in_scope(url):
+            if not _filter_in_scope(url, cat):
                 continue
             grouped.setdefault(cat, set()).add(url)
             count += 1
