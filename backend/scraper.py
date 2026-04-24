@@ -44,7 +44,12 @@ def is_blocked_html(html: str) -> bool:
     ]
     return any(m in text_lower for m in block_markers)
 
-async def fetch_html_with_scrapingbee(url: str, render_js: bool) -> Optional[str]:
+async def fetch_html_with_scrapingbee(
+    url: str,
+    render_js: bool,
+    premium_proxy: bool,
+    country_code: str | None,
+) -> Optional[str]:
     if not SCRAPINGBEE_API_KEY:
         return None
     try:
@@ -54,28 +59,47 @@ async def fetch_html_with_scrapingbee(url: str, render_js: bool) -> Optional[str
             "render_js": "true" if render_js else "false",
             "block_resources": "true",
         }
+        if premium_proxy:
+            # Helps with WAF/anti-bot protected sites.
+            params["premium_proxy"] = "true"
+        if country_code:
+            params["country_code"] = country_code
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             resp = await client.get("https://app.scrapingbee.com/api/v1/", params=params)
             if resp.status_code == 200 and resp.text and not is_blocked_html(resp.text):
                 print(
-                    f"ScrapingBee success (render_js={render_js}) for {url} (bytes={len(resp.text)})"
+                    f"ScrapingBee success (render_js={render_js}, premium_proxy={premium_proxy}, country={country_code}) "
+                    f"for {url} (bytes={len(resp.text)})"
                 )
                 return resp.text
             print(
-                f"ScrapingBee failed (render_js={render_js}) for {url} "
-                f"(status={resp.status_code}, bytes={len(resp.text or '')})"
+                f"ScrapingBee failed (render_js={render_js}, premium_proxy={premium_proxy}, country={country_code}) "
+                f"for {url} (status={resp.status_code}, bytes={len(resp.text or '')})"
             )
     except Exception as e:
-        print(f"ScrapingBee error (render_js={render_js}) for {url}: {e}")
+        print(
+            f"ScrapingBee error (render_js={render_js}, premium_proxy={premium_proxy}, country={country_code}) "
+            f"for {url}: {e}"
+        )
     return None
 
 
 async def fetch_html_via_scrapingbee(url: str) -> Optional[str]:
-    # First try without JS (faster/cheaper), then retry with JS for pages that require it.
-    html = await fetch_html_with_scrapingbee(url, render_js=False)
+    # First try without JS (faster/cheaper), then retry with JS, then with premium proxies (best effort).
+    html = await fetch_html_with_scrapingbee(
+        url, render_js=False, premium_proxy=False, country_code=None
+    )
     if html:
         return html
-    return await fetch_html_with_scrapingbee(url, render_js=True)
+    html = await fetch_html_with_scrapingbee(
+        url, render_js=True, premium_proxy=False, country_code=None
+    )
+    if html:
+        return html
+    # Akamai/WAF-protected pages often require premium/stealth proxy pools.
+    return await fetch_html_with_scrapingbee(
+        url, render_js=True, premium_proxy=True, country_code="us"
+    )
 
 async def fetch_page(url: str) -> Optional[BeautifulSoup]:
     cached = get_cached(url)
