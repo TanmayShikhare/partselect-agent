@@ -89,7 +89,7 @@ async def fetch_html_with_zenrows(
     url: str,
     js_render: bool,
     premium_proxy: bool,
-    country_code: str | None,
+    proxy_country: str | None,
 ) -> Optional[str]:
     if not ZENROWS_API_KEY:
         return None
@@ -97,29 +97,50 @@ async def fetch_html_with_zenrows(
         params = {
             "apikey": ZENROWS_API_KEY,
             "url": url,
+            # Helpful for debugging: returns target status/headers in the response headers.
+            # (ZenRows docs: original_status=true)
+            "original_status": "true",
         }
         if js_render:
             params["js_render"] = "true"
         if premium_proxy:
             params["premium_proxy"] = "true"
-        if country_code:
-            params["country_code"] = country_code
+            # Give JS challenges a moment to run on heavily protected sites.
+            params["wait"] = "5000"
+            # Make the request look more like a real browser session.
+            params["custom_headers"] = "true"
+        if proxy_country:
+            # ZenRows uses proxy_country (not country_code).
+            params["proxy_country"] = proxy_country
 
-        async with httpx.AsyncClient(timeout=45.0, follow_redirects=True) as client:
-            resp = await client.get("https://api.zenrows.com/v1/", params=params)
+        headers = None
+        if premium_proxy:
+            headers = {
+                "referer": "https://www.google.com/",
+                "user-agent": HEADERS.get("User-Agent", ""),
+                "accept-language": "en-US,en;q=0.9",
+            }
+
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+            resp = await client.get(
+                "https://api.zenrows.com/v1/",
+                params=params,
+                headers=headers,
+            )
             if resp.status_code == 200 and resp.text and not is_blocked_html(resp.text):
                 print(
-                    f"ZenRows success (js_render={js_render}, premium_proxy={premium_proxy}, country={country_code}) "
+                    f"ZenRows success (js_render={js_render}, premium_proxy={premium_proxy}, proxy_country={proxy_country}) "
                     f"for {url} (bytes={len(resp.text)})"
                 )
                 return resp.text
             print(
-                f"ZenRows failed (js_render={js_render}, premium_proxy={premium_proxy}, country={country_code}) "
-                f"for {url} (status={resp.status_code}, bytes={len(resp.text or '')})"
+                f"ZenRows failed (js_render={js_render}, premium_proxy={premium_proxy}, proxy_country={proxy_country}) "
+                f"for {url} (status={resp.status_code}, bytes={len(resp.text or '')}) "
+                f"(original_status={resp.headers.get('x-zenrows-original-status') or resp.headers.get('x-original-status')})"
             )
     except Exception as e:
         print(
-            f"ZenRows error (js_render={js_render}, premium_proxy={premium_proxy}, country={country_code}) "
+            f"ZenRows error (js_render={js_render}, premium_proxy={premium_proxy}, proxy_country={proxy_country}) "
             f"for {url}: {e}"
         )
     return None
@@ -128,17 +149,17 @@ async def fetch_html_with_zenrows(
 async def fetch_html_via_zenrows(url: str) -> Optional[str]:
     # ZenRows: try fast first, then escalate.
     html = await fetch_html_with_zenrows(
-        url, js_render=False, premium_proxy=False, country_code=None
+        url, js_render=False, premium_proxy=False, proxy_country=None
     )
     if html:
         return html
     html = await fetch_html_with_zenrows(
-        url, js_render=True, premium_proxy=False, country_code=None
+        url, js_render=True, premium_proxy=False, proxy_country=None
     )
     if html:
         return html
     return await fetch_html_with_zenrows(
-        url, js_render=True, premium_proxy=True, country_code="us"
+        url, js_render=True, premium_proxy=True, proxy_country="us"
     )
 
 
