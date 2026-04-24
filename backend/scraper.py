@@ -44,24 +44,38 @@ def is_blocked_html(html: str) -> bool:
     ]
     return any(m in text_lower for m in block_markers)
 
-async def fetch_html_with_scrapingbee(url: str) -> Optional[str]:
+async def fetch_html_with_scrapingbee(url: str, render_js: bool) -> Optional[str]:
     if not SCRAPINGBEE_API_KEY:
         return None
     try:
         params = {
             "api_key": SCRAPINGBEE_API_KEY,
             "url": url,
-            # Avoid JS rendering cost unless absolutely needed
-            "render_js": "false",
+            "render_js": "true" if render_js else "false",
             "block_resources": "true",
         }
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             resp = await client.get("https://app.scrapingbee.com/api/v1/", params=params)
             if resp.status_code == 200 and resp.text and not is_blocked_html(resp.text):
+                print(
+                    f"ScrapingBee success (render_js={render_js}) for {url} (bytes={len(resp.text)})"
+                )
                 return resp.text
+            print(
+                f"ScrapingBee failed (render_js={render_js}) for {url} "
+                f"(status={resp.status_code}, bytes={len(resp.text or '')})"
+            )
     except Exception as e:
-        print(f"ScrapingBee error for {url}: {e}")
+        print(f"ScrapingBee error (render_js={render_js}) for {url}: {e}")
     return None
+
+
+async def fetch_html_via_scrapingbee(url: str) -> Optional[str]:
+    # First try without JS (faster/cheaper), then retry with JS for pages that require it.
+    html = await fetch_html_with_scrapingbee(url, render_js=False)
+    if html:
+        return html
+    return await fetch_html_with_scrapingbee(url, render_js=True)
 
 async def fetch_page(url: str) -> Optional[BeautifulSoup]:
     cached = get_cached(url)
@@ -81,7 +95,7 @@ async def fetch_page(url: str) -> Optional[BeautifulSoup]:
             else:
                 print(f"Blocked or challenge page detected for {url}")
 
-            html = await fetch_html_with_scrapingbee(url)
+            html = await fetch_html_via_scrapingbee(url)
             if not html:
                 return None
             soup = BeautifulSoup(html, "html.parser")
