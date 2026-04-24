@@ -26,6 +26,7 @@ HEADERS = {
 }
 
 SCRAPINGBEE_API_KEY = os.getenv("SCRAPINGBEE_API_KEY", "").strip()
+ZENROWS_API_KEY = os.getenv("ZENROWS_API_KEY", "").strip()
 
 def is_blocked_html(html: str) -> bool:
     text_lower = (html or "")[:12000].lower()
@@ -84,6 +85,63 @@ async def fetch_html_with_scrapingbee(
     return None
 
 
+async def fetch_html_with_zenrows(
+    url: str,
+    js_render: bool,
+    premium_proxy: bool,
+    country_code: str | None,
+) -> Optional[str]:
+    if not ZENROWS_API_KEY:
+        return None
+    try:
+        params = {
+            "apikey": ZENROWS_API_KEY,
+            "url": url,
+        }
+        if js_render:
+            params["js_render"] = "true"
+        if premium_proxy:
+            params["premium_proxy"] = "true"
+        if country_code:
+            params["country_code"] = country_code
+
+        async with httpx.AsyncClient(timeout=45.0, follow_redirects=True) as client:
+            resp = await client.get("https://api.zenrows.com/v1/", params=params)
+            if resp.status_code == 200 and resp.text and not is_blocked_html(resp.text):
+                print(
+                    f"ZenRows success (js_render={js_render}, premium_proxy={premium_proxy}, country={country_code}) "
+                    f"for {url} (bytes={len(resp.text)})"
+                )
+                return resp.text
+            print(
+                f"ZenRows failed (js_render={js_render}, premium_proxy={premium_proxy}, country={country_code}) "
+                f"for {url} (status={resp.status_code}, bytes={len(resp.text or '')})"
+            )
+    except Exception as e:
+        print(
+            f"ZenRows error (js_render={js_render}, premium_proxy={premium_proxy}, country={country_code}) "
+            f"for {url}: {e}"
+        )
+    return None
+
+
+async def fetch_html_via_zenrows(url: str) -> Optional[str]:
+    # ZenRows: try fast first, then escalate.
+    html = await fetch_html_with_zenrows(
+        url, js_render=False, premium_proxy=False, country_code=None
+    )
+    if html:
+        return html
+    html = await fetch_html_with_zenrows(
+        url, js_render=True, premium_proxy=False, country_code=None
+    )
+    if html:
+        return html
+    return await fetch_html_with_zenrows(
+        url, js_render=True, premium_proxy=True, country_code="us"
+    )
+
+
 async def fetch_html_via_scrapingbee(url: str) -> Optional[str]:
     # First try without JS (faster/cheaper), then retry with JS, then with premium proxies (best effort).
     html = await fetch_html_with_scrapingbee(
@@ -119,7 +177,12 @@ async def fetch_page(url: str) -> Optional[BeautifulSoup]:
             else:
                 print(f"Blocked or challenge page detected for {url}")
 
-            html = await fetch_html_via_scrapingbee(url)
+            # Prefer ZenRows if configured; fall back to ScrapingBee if configured.
+            html = None
+            if ZENROWS_API_KEY:
+                html = await fetch_html_via_zenrows(url)
+            if not html:
+                html = await fetch_html_via_scrapingbee(url)
             if not html:
                 return None
             soup = BeautifulSoup(html, "html.parser")
