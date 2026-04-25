@@ -190,21 +190,25 @@ async def run_agent(messages: list, session_data: dict | None = None) -> dict:
             )
             break
 
-    if not (os.getenv("ANTHROPIC_API_KEY") or "").strip():
-        return {
-            "response": "Service is missing a required API key configuration. Please set ANTHROPIC_API_KEY and try again.",
-            "parts": [],
-            "sources": [],
-            "messages": messages + [{"role": "assistant", "content": "Service is missing a required API key configuration. Please set ANTHROPIC_API_KEY and try again."}],
-            "debug": {},
-        }
+        if not (os.getenv("ANTHROPIC_API_KEY") or "").strip():
+            msg = (
+                "Service is missing a required API key configuration. "
+                "Please set ANTHROPIC_API_KEY and try again."
+            )
+            return {
+                "response": msg,
+                "parts": [],
+                "sources": [],
+                "messages": messages + [{"role": "assistant", "content": msg}],
+                "debug": {},
+            }
 
-    response = await client.messages.create(
+        response = await client.messages.create(
             model=os.getenv("PARTSELECT_CHAT_MODEL", "claude-sonnet-4-6"),
             max_tokens=4096,
             system=SYSTEM_PROMPT,
             tools=TOOLS,
-            messages=working_messages
+            messages=working_messages,
         )
 
         # If Claude wants to use a tool
