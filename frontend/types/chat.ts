@@ -20,9 +20,17 @@ export type ChatRequest = {
   session_data: Record<string, unknown>;
 };
 
+export type KnowledgeSource = {
+  url: string;
+  page_kind?: string;
+  snippet?: string;
+};
+
 export type ChatResponse = {
   response: string;
   parts: PartCard[];
+  /** RAG citations from knowledge_search (separate from purchasable part cards). */
+  sources?: KnowledgeSource[];
   conversation_history: Array<{ role: string; content: unknown }>;
 };
 

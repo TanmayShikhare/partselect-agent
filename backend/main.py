@@ -28,6 +28,8 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str
     parts: Optional[List[dict]] = Field(default_factory=list)
+    # URLs/snippets from knowledge_search (RAG), for UI distinct from product cards.
+    sources: Optional[List[dict]] = Field(default_factory=list)
     conversation_history: List[dict]
 
 @app.get("/")
@@ -73,7 +75,9 @@ async def chat(request: ChatRequest):
         messages = request.conversation_history.copy()
         messages.append({"role": "user", "content": request.message})
         messages.append({"role": "assistant", "content": refusal})
-        return ChatResponse(response=refusal, parts=[], conversation_history=messages)
+        return ChatResponse(
+            response=refusal, parts=[], sources=[], conversation_history=messages
+        )
 
     # Build messages array for Claude
     messages = request.conversation_history.copy()
@@ -93,7 +97,8 @@ async def chat(request: ChatRequest):
     return ChatResponse(
         response=result["response"],
         parts=result["parts"],
-        conversation_history=result["messages"]
+        sources=result.get("sources") or [],
+        conversation_history=result["messages"],
     )
 
 if __name__ == "__main__":

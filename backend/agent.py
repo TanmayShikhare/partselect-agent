@@ -73,13 +73,42 @@ If asked about anything outside refrigerators and dishwashers, respond with:
 Always be helpful, accurate, and guide the customer toward a successful repair and purchase."""
 
 
+def _kb_sources_from_tool_result(tool_name: str, result: object) -> list[dict]:
+    """Flatten knowledge_search hits for UI / clients (deduped by URL)."""
+    if tool_name != "knowledge_search" or not isinstance(result, dict):
+        return []
+    out: list[dict] = []
+    seen: set[str] = set()
+    for m in (result.get("matches") or [])[:10]:
+        if not isinstance(m, dict):
+            continue
+        url = (m.get("url") or "").strip()
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        meta = m.get("meta") if isinstance(m.get("meta"), dict) else {}
+        snippet = (m.get("text") or "").replace("\n", " ").strip()[:220]
+        out.append(
+            {
+                "url": url,
+                "page_kind": str(meta.get("page_kind") or ""),
+                "snippet": snippet,
+            }
+        )
+    return out
+
+
 async def run_agent(messages: list, session_data: dict = {}) -> dict:
     """
     Run the PartSelect agent with conversation history.
     Returns the agent's response and any parts data found.
     """
     response_text = ""
-    parts_data = []
+    parts_data: list = []
+    kb_sources: list[dict] = []
+    kb_seen: set[str] = set()
+
+    max_agent_iters = max(2, int(os.getenv("PARTSELECT_AGENT_MAX_ITERS", "14")))
 
     # Keep a customer-facing transcript separate from ephemeral model context injections.
     output_messages = messages.copy()
@@ -121,8 +150,17 @@ async def run_agent(messages: list, session_data: dict = {}) -> dict:
                 return up
         return None
 
-    # Agentic loop - keep going until we get a final response
+    # Agentic loop: tool rounds until end_turn (bounded for cost / runaway protection).
+    agent_iters = 0
     while True:
+        agent_iters += 1
+        if agent_iters > max_agent_iters:
+            response_text = (
+                "I hit an internal step limit while gathering information. "
+                "Please ask a shorter question, or give your model number / part number only."
+            )
+            break
+
         response = await client.messages.create(
             model=os.getenv("PARTSELECT_CHAT_MODEL", "claude-sonnet-4-6"),
             max_tokens=4096,
@@ -166,6 +204,12 @@ async def run_agent(messages: list, session_data: dict = {}) -> dict:
 
                     result = await execute_tool(block.name, block.input)
 
+                    for src in _kb_sources_from_tool_result(block.name, result):
+                        u = src.get("url") or ""
+                        if u and u not in kb_seen:
+                            kb_seen.add(u)
+                            kb_sources.append(src)
+
                     # Collect parts data for frontend rendering
                     if isinstance(result, list):
                         parts_data.extend(result)
@@ -207,5 +251,6 @@ async def run_agent(messages: list, session_data: dict = {}) -> dict:
     return {
         "response": response_text,
         "parts": parts_data,
-        "messages": output_messages
+        "sources": kb_sources,
+        "messages": output_messages,
     }

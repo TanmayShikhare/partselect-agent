@@ -8,7 +8,12 @@ import { Button } from "@/components/ui/button";
 import { TypingDots } from "@/components/TypingDots";
 import { ProductCard } from "@/components/ProductCard";
 import { postChat } from "@/lib/api";
-import type { ChatMessage, ChatResponse, PartCard } from "@/types/chat";
+import type {
+  ChatMessage,
+  ChatResponse,
+  KnowledgeSource,
+  PartCard,
+} from "@/types/chat";
 import { Header } from "@/components/Header";
 
 const SUGGESTIONS: string[] = [
@@ -101,6 +106,7 @@ export function ChatShell() {
     {}
   );
   const [parts, setParts] = React.useState<PartCard[]>([]);
+  const [sources, setSources] = React.useState<KnowledgeSource[]>([]);
   const [isLoading, setIsLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -108,7 +114,7 @@ export function ChatShell() {
 
   React.useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages, isLoading, parts]);
+  }, [messages, isLoading, parts, sources]);
 
   async function send(text: string) {
     const trimmed = text.trim();
@@ -117,6 +123,7 @@ export function ChatShell() {
     setError(null);
     setIsLoading(true);
     setParts([]);
+    setSources([]);
 
     setMessages((m) => [...m, { role: "user", content: trimmed }]);
     setInput("");
@@ -134,6 +141,13 @@ export function ChatShell() {
       // Avoid rendering low-quality blank cards; require at least a URL and a name/part_number.
       setParts(
         nextParts.filter((p) => Boolean(p?.url) && Boolean(p?.name || p?.part_number))
+      );
+      const nextSources = Array.isArray(res.sources) ? res.sources : [];
+      setSources(
+        nextSources.filter(
+          (s): s is KnowledgeSource =>
+            Boolean(s?.url) && typeof s.url === "string"
+        )
       );
 
       // Lightweight client-side memory: extract obvious model/part tokens from the user message.
@@ -220,6 +234,36 @@ export function ChatShell() {
             {error ? (
               <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
                 {error}
+              </div>
+            ) : null}
+
+            {sources.length ? (
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50/80 px-4 py-3 text-sm text-zinc-800">
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                  Knowledge sources
+                </div>
+                <ul className="mt-2 space-y-2">
+                  {sources.map((s, i) => (
+                    <li key={`${s.url}-${i}`} className="border-t border-zinc-200/80 pt-2 first:border-t-0 first:pt-0">
+                      <a
+                        href={s.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-medium text-[#0b6a6a] underline underline-offset-2 break-all"
+                      >
+                        {s.url}
+                      </a>
+                      {s.page_kind ? (
+                        <span className="ml-2 text-xs text-zinc-500">({s.page_kind})</span>
+                      ) : null}
+                      {s.snippet ? (
+                        <div className="mt-1 text-xs leading-relaxed text-zinc-600 line-clamp-2">
+                          {s.snippet}
+                        </div>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
               </div>
             ) : null}
 
