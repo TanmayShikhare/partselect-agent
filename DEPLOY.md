@@ -2,6 +2,13 @@
 
 This repo is a **monorepo**: Python FastAPI lives under `backend/`, Next.js under `frontend/`. Production is **two services**; neither reads the other’s mind—you wire them with env vars and redeploys.
 
+## GitHub → Railway → frontend: what actually happens (no misconstrual)
+
+- **GitHub** holds **git commits** (source code). Pushing to `main` does **not** by itself “transport” anything to Railway or Vercel unless **you** turned on that path.
+- **Railway** rebuilds when **its** GitHub integration (or manual “Deploy”) runs against **this repo** and the branch you configured. It deploys **`backend/`** (or your chosen root). It does **not** pull the frontend from Railway—the backend is its own deploy.
+- **Vercel** rebuilds when **its** GitHub integration runs against **this repo** and the branch you configured. It deploys **`frontend/`**. The built site is static/SSR assets; at **runtime** the browser calls whatever **`NEXT_PUBLIC_BACKEND_URL`** points to (your Railway URL). So: **frontend code comes from GitHub → Vercel**; **API calls go browser → Railway**. There is no “Railway → frontend” code pipeline—only **your env var** links them.
+- **Safely “everywhere”:** same repo, but **each** host must (1) track the right branch, (2) use the right **root directory**, (3) have the right **env vars**, (4) for RAG, have a deliberate plan for **`knowledge/`** (see checklist step 4). Verify with the smoke tests below after each change.
+
 ## What you are responsible for (checklist)
 
 | Step | Service | Action |
