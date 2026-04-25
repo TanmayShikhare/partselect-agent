@@ -7,7 +7,7 @@ This repo is a **monorepo**: Python FastAPI lives under `backend/`, Next.js unde
 | Step | Service | Action |
 |------|---------|--------|
 | 1 | **Railway** | Service **root directory** = `backend` (or equivalent: build/run cwd is `backend/`). |
-| 2 | **Railway** | **Start command** uses `$PORT` (see `backend/Procfile` — Railway picks this up when root is `backend`). |
+| 2 | **Railway** | **Start command** uses `$PORT`. See `backend/Procfile`. If Railway does not pick it up, set **Custom Start Command** to: `uvicorn main:app --host 0.0.0.0 --port $PORT`. |
 | 3 | **Railway** | Set **environment variables** (same names as `backend/.env` locally): `ANTHROPIC_API_KEY`, `SCRAPINGBEE_API_KEY` / `ZENROWS_API_KEY` as you use them, optional `PARTSELECT_*` from `knowledge_stack.format_stack_plan()` / code. |
 | 4 | **Railway** | **RAG artifacts**: `backend/knowledge/` is **gitignored**. A Git push **does not** ship your local Chroma index. Either: (a) attach a **volume** and copy `knowledge/index` + corpus onto it once, (b) run **`python scripts/rebuild_knowledge_index.py`** in a **release / post-deploy** job (slow, needs CPU + HF model cache), or (c) bake artifacts into a **Docker image** you build locally/CI and push. Until one of these is true, **`knowledge_search` in prod may be empty or error**. |
 | 5 | **Vercel** | Project **root** = `frontend` (or monorepo with “Root Directory” = `frontend`). |
