@@ -5,8 +5,9 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       { protocol: "https", hostname: "www.partselect.com" },
       { protocol: "https", hostname: "partselect.com" },
-      // Some search results return CDN URLs; allow HTTPS for demo safety.
-      { protocol: "https", hostname: "**" },
+      // Common PartSelect image/CDN hosts (keep this list tight).
+      { protocol: "https", hostname: "images.partselect.com" },
+      { protocol: "https", hostname: "www.partselect.ca" },
     ],
   },
 };

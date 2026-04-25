@@ -17,6 +17,12 @@ client = anthropic.AsyncAnthropic(
     http_client=_http_client,
 )
 
+async def close_agent_http_client() -> None:
+    try:
+        await _http_client.aclose()
+    except Exception:
+        pass
+
 SYSTEM_PROMPT = """You are a helpful customer service assistant for PartSelect, an e-commerce website that sells appliance parts. You specialize exclusively in Refrigerator and Dishwasher parts.
 
 Your primary functions are:
@@ -106,7 +112,7 @@ def _kb_sources_from_tool_result(tool_name: str, result: object) -> list[dict]:
     return out
 
 
-async def run_agent(messages: list, session_data: dict = {}) -> dict:
+async def run_agent(messages: list, session_data: dict | None = None) -> dict:
     """
     Run the PartSelect agent with conversation history.
     Returns the agent's response and any parts data found.
@@ -116,6 +122,7 @@ async def run_agent(messages: list, session_data: dict = {}) -> dict:
     kb_sources: list[dict] = []
     kb_seen: set[str] = set()
     tool_call_trace: list[dict] = []
+    session_data = session_data or {}
 
     max_agent_iters = max(2, int(os.getenv("PARTSELECT_AGENT_MAX_ITERS", "14")))
 
@@ -194,7 +201,8 @@ async def run_agent(messages: list, session_data: dict = {}) -> dict:
             tool_results = []
             for block in response.content:
                 if block.type == "tool_use":
-                    print(f"Tool called: {block.name} with {block.input}")
+                    if os.getenv("PARTSELECT_DEBUG", "").lower() in {"1", "true", "yes"}:
+                        print(f"Tool called: {block.name} with {block.input}")
                     tool_call_trace.append(
                         {
                             "name": str(block.name),

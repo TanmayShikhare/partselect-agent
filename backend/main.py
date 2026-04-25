@@ -1,11 +1,18 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional
 import uvicorn
-from agent import run_agent
+from agent import run_agent, close_agent_http_client
 
-app = FastAPI(title="PartSelect Agent API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    await close_agent_http_client()
+
+app = FastAPI(title="PartSelect Agent API", lifespan=lifespan)
 
 # Allow frontend to talk to backend
 app.add_middleware(
@@ -90,11 +97,25 @@ async def chat(request: ChatRequest):
         "content": request.message
     })
     
-    # Run the agent
-    result = await run_agent(
-        messages=messages,
-        session_data=request.session_data
-    )
+    try:
+        # Run the agent
+        result = await run_agent(
+            messages=messages,
+            session_data=request.session_data
+        )
+    except Exception:
+        failure = (
+            "I ran into an internal error while generating a response. "
+            "Please try again in a moment."
+        )
+        messages.append({"role": "assistant", "content": failure})
+        return ChatResponse(
+            response=failure,
+            parts=[],
+            sources=[],
+            debug={},
+            conversation_history=messages,
+        )
     
     return ChatResponse(
         response=result["response"],
