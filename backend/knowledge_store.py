@@ -309,7 +309,13 @@ class KnowledgeStore:
             "embed_batch_size": batch,
         }
 
-    def query(self, query: str, top_k: int = 5) -> dict:
+    def query(
+        self,
+        query: str,
+        top_k: int = 5,
+        where: dict | None = None,
+        where_document: dict | None = None,
+    ) -> dict:
         q = (query or "").strip()
         if not q:
             return {"matches": []}
@@ -319,11 +325,16 @@ class KnowledgeStore:
         q_emb = embedder.encode([q]).tolist()[0]
 
         max_k = int(os.environ.get("PARTSELECT_QUERY_MAX_TOP_K", "12"))
-        res = col.query(
-            query_embeddings=[q_emb],
-            n_results=max(1, min(int(top_k), max_k)),
-            include=["documents", "metadatas", "distances"],
-        )
+        q_kw: dict = {
+            "query_embeddings": [q_emb],
+            "n_results": max(1, min(int(top_k), max_k)),
+            "include": ["documents", "metadatas", "distances"],
+        }
+        if where is not None:
+            q_kw["where"] = where
+        if where_document is not None:
+            q_kw["where_document"] = where_document
+        res = col.query(**q_kw)
 
         matches: list[dict] = []
         docs = (res.get("documents") or [[]])[0]

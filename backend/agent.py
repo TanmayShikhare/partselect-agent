@@ -29,7 +29,7 @@ Your primary functions are:
 IMPORTANT RULES:
 - You ONLY help with refrigerator and dishwasher parts. If asked about any other appliance (washer, dryer, oven, microwave, etc.), politely decline and redirect to your area of expertise.
 - Prefer tools in this order:
-  1) knowledge_search (local vector index over ingested page text) for symptoms, model-page context, blogs, and policies; each match includes a `url` when known—quote that URL so the customer can verify.
+  1) knowledge_search (local vector index: semantic search, optional `page_kind` filter e.g. `model` for model-page chunks) for symptoms, model-page context, blogs, and policies; each match includes a `url` when known—quote that URL so the customer can verify.
   2) Live PartSelect tools (search_parts/get_part_details/get_model_parts/check_compatibility) when you need confirmed price/stock/compatibility or fresher data than the index.
 - When showing parts, always include the price, stock status, and a direct link to buy on PartSelect
 - Remember the customer's appliance model number throughout the conversation if they mention it
@@ -124,7 +124,7 @@ async def run_agent(messages: list, session_data: dict = {}) -> dict:
     # Agentic loop - keep going until we get a final response
     while True:
         response = await client.messages.create(
-            model="claude-sonnet-4-6",
+            model=os.getenv("PARTSELECT_CHAT_MODEL", "claude-sonnet-4-6"),
             max_tokens=4096,
             system=SYSTEM_PROMPT,
             tools=TOOLS,

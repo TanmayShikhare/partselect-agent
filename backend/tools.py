@@ -1,3 +1,5 @@
+import os
+
 from scraper import (
     get_part_details,
     search_parts,
@@ -6,7 +8,7 @@ from scraper import (
     check_compatibility,
     validate_model_number,
 )
-from knowledge_store import knowledge_store
+from knowledge_retrieval import retrieve
 
 # Frontend expects a consistent schema for product cards.
 def normalize_part(part: dict) -> dict:
@@ -33,7 +35,7 @@ def normalize_compatibility(result: dict) -> dict:
 TOOLS = [
     {
         "name": "knowledge_search",
-        "description": "Search the local vector index built from ingested PartSelect pages (blogs, model pages, etc.). Each hit includes a canonical `url` when available—cite it. Use for symptoms, model context, and policy-ish content before or alongside live scraping.",
+        "description": "Search the local vector index (dense retrieval + optional filters). Hits include `url` when known—cite it. Optional `page_kind` narrows to model/blog/part/etc. Use for symptoms, model-page text, blogs; pair with live tools for price/stock.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -45,7 +47,20 @@ TOOLS = [
                     "type": "integer",
                     "description": "Number of matches to return (max 8).",
                     "default": 5
-                }
+                },
+                "page_kind": {
+                    "type": "string",
+                    "description": "Optional Chroma metadata filter: only these indexed page kinds.",
+                    "enum": [
+                        "model",
+                        "part",
+                        "blog",
+                        "repair",
+                        "category",
+                        "ptl",
+                        "other",
+                    ],
+                },
             },
             "required": ["query"]
         }
@@ -154,8 +169,22 @@ async def execute_tool(tool_name: str, tool_input: dict) -> dict:
     try:
         if tool_name == "knowledge_search":
             q = tool_input.get("query", "")
-            top_k = tool_input.get("top_k", 5)
-            return knowledge_store().query(q, top_k=top_k)
+            top_k = min(int(tool_input.get("top_k", 5) or 5), 8)
+            pk = tool_input.get("page_kind")
+            if isinstance(pk, str):
+                pk = pk.strip() or None
+            else:
+                pk = None
+            return retrieve(
+                q,
+                top_k=top_k,
+                page_kind=pk,
+                oversample=int(os.environ.get("PARTSELECT_RETRIEVAL_OVERSAMPLE", "2")),
+                rerank_lexical=os.environ.get(
+                    "PARTSELECT_RETRIEVAL_LEXICAL_RERANK", ""
+                ).lower()
+                in ("1", "true", "yes"),
+            )
         if tool_name == "search_parts":
             results = await search_parts(
                 query=tool_input["query"],
