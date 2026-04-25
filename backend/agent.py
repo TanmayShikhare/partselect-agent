@@ -49,6 +49,8 @@ OUTPUT FORMAT (STRICT):
   - Recommended part(s) (if applicable)
   - Next step / one question (if something is missing)
 - When you cite facts from tools, include the PartSelect URL(s) you relied on (from tool output fields like url) so the customer can verify.
+- After you receive tool results: write for the customer in normal language. Never paste raw JSON, tool payloads, or internal field names into the reply.
+- If knowledge_search and a live PartSelect tool disagree on price/stock/fit, trust the live tool for commerce facts and treat the knowledge index as supporting context (it can be older).
 - If tool data is missing/ambiguous, say what you could not verify and ask the minimum next question (usually model number or appliance type).
 - If tool calls fail due to access being blocked by PartSelect (site protection), say so explicitly and ask the user to open the provided URL or provide the exact part/model number from their label. Do not pretend the item doesn't exist.
 
@@ -245,7 +247,29 @@ async def run_agent(messages: list, session_data: dict = {}) -> dict:
             response_text = "\n".join(text_chunks).strip()
             break
 
+        elif response.stop_reason == "max_tokens":
+            text_chunks = []
+            for block in response.content:
+                if getattr(block, "type", None) == "text" and getattr(block, "text", None):
+                    text_chunks.append(block.text)
+            base = "\n".join(text_chunks).strip()
+            response_text = (
+                (base + "\n\n") if base else ""
+            ) + "Reply hit a length limit. Ask a shorter follow-up if you need more detail."
+            break
+
         else:
+            text_chunks = []
+            for block in response.content:
+                if getattr(block, "type", None) == "text" and getattr(block, "text", None):
+                    text_chunks.append(block.text)
+            response_text = "\n".join(text_chunks).strip()
+            if response_text:
+                break
+            response_text = (
+                "The assistant could not finish this turn. Please try again, "
+                "ideally with your model number or PS part number."
+            )
             break
 
     return {

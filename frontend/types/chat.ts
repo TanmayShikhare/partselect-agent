@@ -1,10 +1,5 @@
 export type ChatRole = "user" | "assistant";
 
-export type ChatMessage = {
-  role: ChatRole;
-  content: string;
-};
-
 export type PartCard = {
   name: string;
   part_number: string;
@@ -14,16 +9,24 @@ export type PartCard = {
   image: string;
 };
 
-export type ChatRequest = {
-  message: string;
-  conversation_history: Array<{ role: string; content: unknown }>;
-  session_data: Record<string, unknown>;
-};
-
 export type KnowledgeSource = {
   url: string;
   page_kind?: string;
   snippet?: string;
+};
+
+export type ChatMessage = {
+  role: ChatRole;
+  content: string;
+  /** Shown under this assistant turn only (from last /chat response). */
+  parts?: PartCard[];
+  sources?: KnowledgeSource[];
+};
+
+export type ChatRequest = {
+  message: string;
+  conversation_history: Array<{ role: string; content: unknown }>;
+  session_data: Record<string, unknown>;
 };
 
 export type ChatResponse = {
@@ -33,4 +36,3 @@ export type ChatResponse = {
   sources?: KnowledgeSource[];
   conversation_history: Array<{ role: string; content: unknown }>;
 };
-

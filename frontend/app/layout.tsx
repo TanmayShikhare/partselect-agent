@@ -13,8 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PartSelect Agent",
-  description: "Chat assistant for refrigerator and dishwasher parts on PartSelect.",
+  title: "PartSelect Assistant — fridge & dishwasher parts",
+  description:
+    "Find OEM refrigerator and dishwasher parts, check fit, and get repair guidance.",
 };
 
 export default function RootLayout({
@@ -27,7 +28,9 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="flex min-h-full flex-col bg-zinc-100 text-zinc-900 antialiased">
+        {children}
+      </body>
     </html>
   );
 }
