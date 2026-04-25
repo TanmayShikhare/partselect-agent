@@ -30,6 +30,8 @@ class ChatResponse(BaseModel):
     parts: Optional[List[dict]] = Field(default_factory=list)
     # URLs/snippets from knowledge_search (RAG), for UI distinct from product cards.
     sources: Optional[List[dict]] = Field(default_factory=list)
+    # Optional debug payload (only present when PARTSELECT_DEBUG=1)
+    debug: Optional[dict] = Field(default_factory=dict)
     conversation_history: List[dict]
 
 @app.get("/")
@@ -98,6 +100,7 @@ async def chat(request: ChatRequest):
         response=result["response"],
         parts=result["parts"],
         sources=result.get("sources") or [],
+        debug=result.get("debug") or {},
         conversation_history=result["messages"],
     )
 

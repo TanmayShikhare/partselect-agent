@@ -116,6 +116,7 @@ async def run_agent(messages: list, session_data: dict = {}) -> dict:
     parts_data: list = []
     kb_sources: list[dict] = []
     kb_seen: set[str] = set()
+    tool_call_trace: list[dict] = []
 
     max_agent_iters = max(2, int(os.getenv("PARTSELECT_AGENT_MAX_ITERS", "14")))
 
@@ -195,6 +196,14 @@ async def run_agent(messages: list, session_data: dict = {}) -> dict:
             for block in response.content:
                 if block.type == "tool_use":
                     print(f"Tool called: {block.name} with {block.input}")
+                    tool_call_trace.append(
+                        {
+                            "name": str(block.name),
+                            "input_keys": sorted(list(block.input.keys()))
+                            if isinstance(block.input, dict)
+                            else [],
+                        }
+                    )
                     # Guardrail: never let the agent invent/alter the model number.
                     # If the user recently provided a model number, force tools to use it.
                     user_model = (
@@ -284,4 +293,14 @@ async def run_agent(messages: list, session_data: dict = {}) -> dict:
         "parts": parts_data,
         "sources": kb_sources,
         "messages": output_messages,
+        "debug": (
+            {
+                "tool_calls": tool_call_trace,
+                "used_live_tools": any(
+                    tc.get("name") not in {"knowledge_search"} for tc in tool_call_trace
+                ),
+            }
+            if os.getenv("PARTSELECT_DEBUG", "").lower() in {"1", "true", "yes"}
+            else {}
+        ),
     }
