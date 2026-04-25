@@ -35,7 +35,7 @@ def normalize_compatibility(result: dict) -> dict:
 TOOLS = [
     {
         "name": "knowledge_search",
-        "description": "Search the local vector index (dense retrieval + optional filters). Hits include `url` when known—cite it. Optional `page_kind` narrows to model/blog/part/etc. Use for symptoms, model-page text, blogs; pair with live tools for price/stock.",
+        "description": "PRIMARY source: local vector index over ingested PartSelect pages. Use first for symptoms, models, repair text, blogs. Hits include `url`—cite them. Optional `page_kind` (e.g. `model`). Live PartSelect fetches are often blocked; do not assume live tools will work.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -67,7 +67,7 @@ TOOLS = [
     },
     {
         "name": "search_parts",
-        "description": "Search for refrigerator or dishwasher parts on PartSelect by keyword, part name, or symptom. Use this when the user is looking for a part but doesn't have a specific part number.",
+        "description": "OPTIONAL live PartSelect parts search (API). Often blocked; prefer knowledge_search first. Use only if KB insufficient and you accept fetch may fail.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -86,7 +86,7 @@ TOOLS = [
     },
     {
         "name": "get_part_details",
-        "description": "Get full details for a specific part by its PartSelect part number (PS number). Use this when the user provides a specific part number like PS11752778.",
+        "description": "OPTIONAL live part detail page (PS number). Often blocked; prefer knowledge_search for part context first. Use sparingly for price/stock when KB lacks it.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -100,7 +100,7 @@ TOOLS = [
     },
     {
         "name": "get_model_parts",
-        "description": "Get the most commonly replaced parts for a specific appliance model number. Use this when the user provides their appliance model number and wants to know what parts are available.",
+        "description": "OPTIONAL live model parts list. Often blocked; prefer knowledge_search with page_kind model first. Use if KB has no part list for that model.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -114,7 +114,7 @@ TOOLS = [
     },
     {
         "name": "validate_model_number",
-        "description": "Validate a PartSelect model number by loading the model page and extracting basic evidence (title + best-effort appliance type inference). Use this before assuming whether a model is a refrigerator or dishwasher.",
+        "description": "OPTIONAL live model page validation. Often blocked; prefer knowledge_search (model pages) first. Use only if KB did not clarify fridge vs dishwasher.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -128,7 +128,7 @@ TOOLS = [
     },
     {
         "name": "get_repair_guide",
-        "description": "Get repair guide and recommended parts for a specific symptom or problem. Use this when the user describes a problem like 'ice maker not working', 'dishwasher not draining', 'fridge not cooling'.",
+        "description": "OPTIONAL live repair/symptom page. Often blocked; prefer knowledge_search for symptom + model first. Use if KB returned nothing useful.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -146,7 +146,7 @@ TOOLS = [
     },
     {
         "name": "check_compatibility",
-        "description": "Check if a specific part is compatible with a specific appliance model. Use this when the user asks if a part fits their model.",
+        "description": "OPTIONAL live compatibility page. Often blocked; prefer knowledge_search for fit clues first. Use if user needs explicit fit check and KB insufficient.",
         "input_schema": {
             "type": "object",
             "properties": {
