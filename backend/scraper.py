@@ -360,7 +360,10 @@ async def search_parts(query: str, appliance_type: str = "") -> list:
 
 async def get_model_parts(model_number: str) -> dict:
     url = f"https://www.partselect.com/Models/{quote_plus(model_number)}/"
-    cached = get_cached(url)
+    # Must not share fetch_page's cache key: fetch_page stores BeautifulSoup under `url`,
+    # which would be returned here and break JSON serialization in the agent.
+    cache_key = f"json:model_parts:{url}"
+    cached = get_cached(cache_key)
     if cached:
         return cached
     soup = await fetch_page(url)
@@ -394,7 +397,7 @@ async def get_model_parts(model_number: str) -> dict:
                 result["parts"].append(part_data)
     except Exception as e:
         print(f"Error parsing model parts: {e}")
-    set_cached(url, result)
+    set_cached(cache_key, result)
     return result
 
 async def get_repair_guide(model_number: str, symptom: str) -> dict:
