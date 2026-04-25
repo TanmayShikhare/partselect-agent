@@ -362,7 +362,8 @@ async def get_model_parts(model_number: str) -> dict:
     url = f"https://www.partselect.com/Models/{quote_plus(model_number)}/"
     # Must not share fetch_page's cache key: fetch_page stores BeautifulSoup under `url`,
     # which would be returned here and break JSON serialization in the agent.
-    cache_key = f"json:model_parts:{url}"
+    # v2: PS id from href was all digits in tail (query strings); bust stale cache.
+    cache_key = f"json:model_parts:v2:{url}"
     cached = get_cached(cache_key)
     if cached:
         return cached
@@ -383,16 +384,22 @@ async def get_model_parts(model_number: str) -> dict:
             link = part.find("a")
             if link:
                 part_data["url"] = "https://www.partselect.com" + link.get("href", "")
-            # Best-effort PS number extraction from URL
+            if not part_data.get("name") and link:
+                part_data["name"] = (link.get_text(strip=True) or link.get("title") or "").strip()
+            img = part.find("img")
+            if img:
+                src = (img.get("data-src") or img.get("data-lazy-src") or img.get("src") or "").strip()
+                if src.startswith("//"):
+                    part_data["image"] = "https:" + src
+                elif src.startswith("/"):
+                    part_data["image"] = "https://www.partselect.com" + src
+                elif src.startswith("http"):
+                    part_data["image"] = src
+            # PS id: only the digit run right after /PS (not digits in ?ModelNum=…)
             href = (link.get("href", "") if link else "") or ""
-            if "/PS" in href.upper():
-                try:
-                    tail = href.split("/PS", 1)[1]
-                    digits = "".join([c for c in tail if c.isdigit()])
-                    if digits:
-                        part_data["part_number"] = f"PS{digits}"
-                except Exception:
-                    pass
+            m_ps = re.search(r"/PS(\d{4,12})\b", href, re.IGNORECASE)
+            if m_ps:
+                part_data["part_number"] = f"PS{m_ps.group(1)}"
             if part_data:
                 result["parts"].append(part_data)
     except Exception as e:
