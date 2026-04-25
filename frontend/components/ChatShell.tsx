@@ -310,8 +310,8 @@ export function ChatShell() {
             ) : null}
 
             <p className="pb-2 text-center text-[11px] leading-relaxed text-zinc-500">
-              Assistant uses PartSelect when available. Always confirm price, fit, and
-              stock on{" "}
+              Some PartSelect pages may block automated access, so I can’t always confirm
+              live price and stock in real time. Always confirm price, fit, and stock on{" "}
               <a
                 className="font-medium text-[#0b6a6a] underline"
                 href="https://www.partselect.com"
