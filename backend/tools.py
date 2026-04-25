@@ -10,6 +10,14 @@ from scraper import (
 )
 from knowledge_retrieval import retrieve
 
+# Live tools are disabled by default for the case-study demo.
+# Enable explicitly by setting PARTSELECT_ENABLE_LIVE_TOOLS=true.
+ENABLE_LIVE_TOOLS = os.getenv("PARTSELECT_ENABLE_LIVE_TOOLS", "").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+
 # Frontend expects a consistent schema for product cards.
 def normalize_part(part: dict) -> dict:
     return {
@@ -31,138 +39,110 @@ def normalize_compatibility(result: dict) -> dict:
         out["compatible"] = None
     return out
 
-# These are the tool definitions we pass to Claude API
-TOOLS = [
-    {
-        "name": "knowledge_search",
-        "description": "PRIMARY source: local vector index over ingested PartSelect pages. Use first for symptoms, models, repair text, blogs. Hits include `url`—cite them. Optional `page_kind` (e.g. `model`). Live PartSelect fetches are often blocked; do not assume live tools will work.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "What to search for, e.g. 'WRS325SDHZ ice maker not making ice', 'PS11752778', 'returns policy'"
-                },
-                "top_k": {
-                    "type": "integer",
-                    "description": "Number of matches to return (max 8).",
-                    "default": 5
-                },
-                "page_kind": {
-                    "type": "string",
-                    "description": "Optional Chroma metadata filter: only these indexed page kinds.",
-                    "enum": [
-                        "model",
-                        "part",
-                        "blog",
-                        "repair",
-                        "category",
-                        "ptl",
-                        "other",
-                    ],
-                },
+KNOWLEDGE_SEARCH_TOOL = {
+    "name": "knowledge_search",
+    "description": "Primary source: indexed PartSelect pages (models, repair guidance, help text). Use first and cite returned URLs.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "What to search for, e.g. 'WRS325SDHZ ice maker not making ice', 'PS11752778 installation', 'returns policy'",
             },
-            "required": ["query"]
-        }
+            "top_k": {
+                "type": "integer",
+                "description": "Number of matches to return (max 8).",
+                "default": 5,
+            },
+            "page_kind": {
+                "type": "string",
+                "description": "Optional metadata filter: only these indexed page kinds.",
+                "enum": [
+                    "model",
+                    "part",
+                    "blog",
+                    "repair",
+                    "category",
+                    "ptl",
+                    "other",
+                ],
+            },
+        },
+        "required": ["query"],
     },
+}
+
+LIVE_TOOLS = [
     {
         "name": "search_parts",
-        "description": "OPTIONAL live PartSelect parts search (API). Often blocked; prefer knowledge_search first. Use only if KB insufficient and you accept fetch may fail.",
+        "description": "Live PartSelect parts search (API).",
         "input_schema": {
             "type": "object",
             "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Search query - can be a part name, symptom, or description e.g. 'ice maker', 'door shelf bin', 'not draining'"
-                },
+                "query": {"type": "string"},
                 "appliance_type": {
                     "type": "string",
-                    "description": "Type of appliance - either 'refrigerator' or 'dishwasher'",
-                    "enum": ["refrigerator", "dishwasher", ""]
-                }
+                    "enum": ["refrigerator", "dishwasher", ""],
+                },
             },
-            "required": ["query"]
-        }
+            "required": ["query"],
+        },
     },
     {
         "name": "get_part_details",
-        "description": "OPTIONAL live part detail page (PS number). Often blocked; prefer knowledge_search for part context first. Use sparingly for price/stock when KB lacks it.",
+        "description": "Live part detail page (PS number).",
         "input_schema": {
             "type": "object",
-            "properties": {
-                "part_number": {
-                    "type": "string",
-                    "description": "The PartSelect part number, e.g. 'PS11752778' or just '11752778'"
-                }
-            },
-            "required": ["part_number"]
-        }
+            "properties": {"part_number": {"type": "string"}},
+            "required": ["part_number"],
+        },
     },
     {
         "name": "get_model_parts",
-        "description": "OPTIONAL live model parts list. Often blocked; prefer knowledge_search with page_kind model first. Use if KB has no part list for that model.",
+        "description": "Live model parts list.",
         "input_schema": {
             "type": "object",
-            "properties": {
-                "model_number": {
-                    "type": "string",
-                    "description": "The appliance model number e.g. 'WDT780SAEM1'"
-                }
-            },
-            "required": ["model_number"]
-        }
+            "properties": {"model_number": {"type": "string"}},
+            "required": ["model_number"],
+        },
     },
     {
         "name": "validate_model_number",
-        "description": "OPTIONAL live model page validation. Often blocked; prefer knowledge_search (model pages) first. Use only if KB did not clarify fridge vs dishwasher.",
+        "description": "Live model page validation.",
         "input_schema": {
             "type": "object",
-            "properties": {
-                "model_number": {
-                    "type": "string",
-                    "description": "The appliance model number e.g. 'WDT780SAEM1'"
-                }
-            },
-            "required": ["model_number"]
-        }
+            "properties": {"model_number": {"type": "string"}},
+            "required": ["model_number"],
+        },
     },
     {
         "name": "get_repair_guide",
-        "description": "OPTIONAL live repair/symptom page. Often blocked; prefer knowledge_search for symptom + model first. Use if KB returned nothing useful.",
+        "description": "Live repair/symptom page.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "model_number": {
-                    "type": "string",
-                    "description": "The appliance model number if known, otherwise leave empty"
-                },
-                "symptom": {
-                    "type": "string",
-                    "description": "The symptom or problem description e.g. 'ice maker not working', 'not draining', 'not cooling'"
-                }
+                "model_number": {"type": "string"},
+                "symptom": {"type": "string"},
             },
-            "required": ["symptom"]
-        }
+            "required": ["symptom"],
+        },
     },
     {
         "name": "check_compatibility",
-        "description": "OPTIONAL live compatibility page. Often blocked; prefer knowledge_search for fit clues first. Use if user needs explicit fit check and KB insufficient.",
+        "description": "Live compatibility page.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "part_number": {
-                    "type": "string",
-                    "description": "The PartSelect part number e.g. 'PS11752778'"
-                },
-                "model_number": {
-                    "type": "string",
-                    "description": "The appliance model number e.g. 'WDT780SAEM1'"
-                }
+                "part_number": {"type": "string"},
+                "model_number": {"type": "string"},
             },
-            "required": ["part_number", "model_number"]
-        }
-    }
+            "required": ["part_number", "model_number"],
+        },
+    },
 ]
+
+# These are the tool definitions we pass to Claude API
+TOOLS = [KNOWLEDGE_SEARCH_TOOL] + (LIVE_TOOLS if ENABLE_LIVE_TOOLS else [])
 
 async def execute_tool(tool_name: str, tool_input: dict) -> dict:
     """Execute a tool by name with given inputs"""
@@ -185,6 +165,8 @@ async def execute_tool(tool_name: str, tool_input: dict) -> dict:
                 ).lower()
                 in ("1", "true", "yes"),
             )
+        if not ENABLE_LIVE_TOOLS:
+            return {"error": "live tools disabled"}
         if tool_name == "search_parts":
             results = await search_parts(
                 query=tool_input["query"],

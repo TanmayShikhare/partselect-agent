@@ -69,6 +69,11 @@ CRITICAL CUSTOMER-FACING WORDING:
 - Never say "my local knowledge base didn't return a match" or anything similar.
 - If you couldn't retrieve specific details, do NOT mention failures, blocking, tools, or "real time". Instead: provide the most relevant PartSelect link(s), give general guidance, and ask for the model number to tailor next steps.
 
+TONE / FRAMING (VERY IMPORTANT):
+- Do NOT use "failure" phrasing like: "I couldn't", "I wasn't able to", "I can't", "blocked", "automatically", "in real time", "could not pull up", "didn't find".
+- Lead with confident framing: "Based on our indexed PartSelect parts and guides..." or "From our indexed PartSelect pages..."
+- When the user asks for installation instructions and you don't have a perfect match, skip apologies/explanations and jump straight into the best next action + the right PartSelect link(s).
+
 INSTALLATION QUESTIONS (PART NUMBER):
 - If the user asks how to install a part (e.g. "How can I install PS11752778?"), first use `knowledge_search` with the part number + "installation" / "repair story".
 - If you still can't retrieve the instructions, give safe, general steps and direct them to the part page's "Installation Instructions" / "Repair Story" section, plus ask for the appliance model number to tailor steps.
@@ -185,7 +190,16 @@ async def run_agent(messages: list, session_data: dict | None = None) -> dict:
             )
             break
 
-        response = await client.messages.create(
+    if not (os.getenv("ANTHROPIC_API_KEY") or "").strip():
+        return {
+            "response": "Service is missing a required API key configuration. Please set ANTHROPIC_API_KEY and try again.",
+            "parts": [],
+            "sources": [],
+            "messages": messages + [{"role": "assistant", "content": "Service is missing a required API key configuration. Please set ANTHROPIC_API_KEY and try again."}],
+            "debug": {},
+        }
+
+    response = await client.messages.create(
             model=os.getenv("PARTSELECT_CHAT_MODEL", "claude-sonnet-4-6"),
             max_tokens=4096,
             system=SYSTEM_PROMPT,
