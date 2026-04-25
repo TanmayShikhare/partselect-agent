@@ -10,6 +10,7 @@ This project is designed to be **demo-stable**: it answers from an **indexed Par
 ## Architecture (high level)
 
 - **UI → Backend**: Next.js calls `POST /chat`
+- **LLM**: Anthropic **Claude** (used for reasoning + tool selection)
 - **Agent**: tool-using loop that retrieves relevant indexed pages then synthesizes an answer
 - **Retrieval**: vector search over ingested PartSelect pages (Chroma)
 - **Knowledge graph (optional/future)**: SQLite edges used to support richer model↔part↔symptom linking
