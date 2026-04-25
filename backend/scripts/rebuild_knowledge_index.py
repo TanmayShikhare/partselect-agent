@@ -17,8 +17,9 @@ def main() -> None:
     args = ap.parse_args()
 
     store = KnowledgeStore()
+    print("Rebuilding knowledge index (this can take several minutes)...", flush=True)
     out = store.rebuild(limit=(args.limit or None))
-    print(out)
+    print(out, flush=True)
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ import argparse
 import csv
 import gzip
 import io
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Iterator
@@ -44,7 +45,31 @@ def _filter_in_scope(url: str, category: str) -> bool:
 
     # Models sitemap: keep model pages.
     if category == "models":
-        return "/models/" in ul
+        # Keep model detail pages like /Models/WRS325SDHZ04/ and exclude browse/manufacturer index URLs.
+        if "/models/" not in ul:
+            return False
+        if "/manufacturer/" in ul:
+            return False
+        if "/mfgmodelnumber/" in ul:
+            return False
+
+        # Expect: /Models/<model>/ (optionally with a trailing slash only)
+        try:
+            after = ul.split("/models/", 1)[1]
+        except Exception:
+            return False
+        after = after.split("?", 1)[0].strip("/")
+        if not after:
+            return False
+        if "/" in after:
+            return False
+        # Basic token sanity (PartSelect model tokens are typically alphanumeric + '-').
+        token = after
+        if len(token) < 3 or len(token) > 64:
+            return False
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]*", token):
+            return False
+        return True
 
     # Parts sitemap: keep PartSelect part pages (PS...) and OEM-style partdetail pages.
     if category == "parts":

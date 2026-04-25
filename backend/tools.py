@@ -33,7 +33,7 @@ def normalize_compatibility(result: dict) -> dict:
 TOOLS = [
     {
         "name": "knowledge_search",
-        "description": "Search the offline knowledge base (ingested docs/CSVs/JSONL) for troubleshooting, policies, and cached product info when live PartSelect access is blocked.",
+        "description": "Search the local vector index built from ingested PartSelect pages (blogs, model pages, etc.). Each hit includes a canonical `url` when available—cite it. Use for symptoms, model context, and policy-ish content before or alongside live scraping.",
         "input_schema": {
             "type": "object",
             "properties": {

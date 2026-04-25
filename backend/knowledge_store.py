@@ -12,6 +12,8 @@ from chromadb.config import Settings
 from pypdf import PdfReader
 from sentence_transformers import SentenceTransformer
 
+from knowledge_graph import corpus_row_meta
+
 
 @dataclass(frozen=True)
 class KnowledgeChunk:
@@ -82,6 +84,22 @@ def _row_to_text(row: dict) -> str:
     return "\n".join(lines).strip()
 
 
+def _is_url_corpus_row(row: dict) -> bool:
+    return isinstance(row, dict) and "text" in row and (
+        "url" in row or "source_csv" in row or "fetched_via" in row
+    )
+
+
+def _url_corpus_embed_text(row: dict) -> str | None:
+    body = (row.get("text") or "").strip()
+    if not body:
+        return None
+    url = str(row.get("url") or "").strip()
+    if url:
+        return f"Source URL: {url}\n\n{body}"
+    return body
+
+
 def iter_knowledge_chunks(raw_dir: Path) -> Iterable[KnowledgeChunk]:
     raw_dir = raw_dir.resolve()
     if not raw_dir.exists():
@@ -125,13 +143,27 @@ def iter_knowledge_chunks(raw_dir: Path) -> Iterable[KnowledgeChunk]:
 
             elif ext == ".jsonl":
                 for i, row in enumerate(_iter_jsonl(path)):
-                    text = _row_to_text(row)
+                    if not isinstance(row, dict):
+                        continue
+                    if _is_url_corpus_row(row):
+                        text = _url_corpus_embed_text(row)
+                        if not text:
+                            continue
+                        base_meta = {
+                            "type": "url_corpus",
+                            "path": rel,
+                            "row": i,
+                            **corpus_row_meta(row),
+                        }
+                    else:
+                        text = _row_to_text(row)
+                        base_meta = {"type": "jsonl", "path": rel, "row": i}
                     for idx, chunk in enumerate(_chunk_text(text)):
                         yield KnowledgeChunk(
                             text=chunk,
                             source=rel,
                             chunk_id=f"{rel}::row:{i}::chunk:{idx}",
-                            meta={"type": "jsonl", "path": rel, "row": i},
+                            meta=base_meta,
                         )
 
             elif ext == ".csv":
@@ -150,18 +182,43 @@ def iter_knowledge_chunks(raw_dir: Path) -> Iterable[KnowledgeChunk]:
 
 
 class KnowledgeStore:
+    """
+    Local Chroma persistence + sentence-transformers embeddings.
+
+    Configuration (optional env overrides for deployment / scale tuning):
+    - PARTSELECT_KNOWLEDGE_RAW_DIR: relative to backend/ (default knowledge/raw)
+    - PARTSELECT_CHROMA_PATH: relative to backend/ (default knowledge/index)
+    - PARTSELECT_CHROMA_COLLECTION: collection name (default partselect_knowledge)
+    - PARTSELECT_EMBED_MODEL: sentence-transformers model id
+    - PARTSELECT_KNOWLEDGE_EMBED_BATCH: embedding batch size (default 256)
+    - PARTSELECT_EMBED_IGNORE_PROXY: if "1"/"true", strip HTTP(S)_PROXY before loading
+      the embedding model (useful when a corporate proxy blocks Hugging Face).
+    """
+
     def __init__(
         self,
-        raw_dir: str = "knowledge/raw",
-        index_dir: str = "knowledge/index",
-        collection: str = "partselect_knowledge",
-        embed_model: str = "sentence-transformers/all-MiniLM-L6-v2",
+        raw_dir: str | None = None,
+        index_dir: str | None = None,
+        collection: str | None = None,
+        embed_model: str | None = None,
     ) -> None:
         base = Path(__file__).resolve().parent
+        raw_dir = raw_dir or os.environ.get("PARTSELECT_KNOWLEDGE_RAW_DIR", "knowledge/raw")
+        index_dir = index_dir or os.environ.get("PARTSELECT_CHROMA_PATH", "knowledge/index")
+        collection = collection or os.environ.get(
+            "PARTSELECT_CHROMA_COLLECTION", "partselect_knowledge"
+        )
+        embed_model = embed_model or os.environ.get(
+            "PARTSELECT_EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
+        )
         self.raw_dir = (base / raw_dir).resolve()
         self.index_dir = (base / index_dir).resolve()
         self.collection_name = collection
         self.embed_model_name = embed_model
+        self.embed_batch_size = max(
+            32,
+            int(os.environ.get("PARTSELECT_KNOWLEDGE_EMBED_BATCH", "256")),
+        )
 
         # Ensure model caches are writable in constrained environments.
         hf_home = (base / "knowledge" / ".hf").resolve()
@@ -178,6 +235,14 @@ class KnowledgeStore:
 
     def _embedder_instance(self) -> SentenceTransformer:
         if self._embedder is None:
+            if os.environ.get("PARTSELECT_EMBED_IGNORE_PROXY", "").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+            }:
+                for k in list(os.environ):
+                    if k.lower() in {"http_proxy", "https_proxy", "all_proxy"}:
+                        os.environ.pop(k, None)
             self._embedder = SentenceTransformer(self.embed_model_name)
         return self._embedder
 
@@ -205,25 +270,44 @@ class KnowledgeStore:
         metas: list[dict] = []
 
         count = 0
+        batch = self.embed_batch_size
+        progress_every = max(500, batch)
         for chunk in iter_knowledge_chunks(self.raw_dir):
+            meta = {**chunk.meta, "source": chunk.source}
+            # Convenience for LLM citations (duplicate of canonical_url when present).
+            if meta.get("canonical_url") and not meta.get("url"):
+                meta["url"] = meta["canonical_url"]
             ids.append(chunk.chunk_id)
             docs.append(chunk.text)
-            metas.append({**chunk.meta, "source": chunk.source})
+            metas.append(meta)
             count += 1
             if limit and count >= limit:
                 break
 
             # Batch insert to keep memory reasonable.
-            if len(ids) >= 256:
+            if len(ids) >= batch:
                 embeddings = embedder.encode(docs).tolist()
                 col.add(ids=ids, documents=docs, metadatas=metas, embeddings=embeddings)
                 ids, docs, metas = [], [], []
+                if count % progress_every == 0:
+                    print(
+                        f"knowledge index progress: chunks_indexed={count}",
+                        flush=True,
+                    )
 
         if ids:
             embeddings = embedder.encode(docs).tolist()
             col.add(ids=ids, documents=docs, metadatas=metas, embeddings=embeddings)
 
-        return {"ok": True, "chunks_indexed": count, "raw_dir": str(self.raw_dir)}
+        return {
+            "ok": True,
+            "chunks_indexed": count,
+            "raw_dir": str(self.raw_dir),
+            "index_dir": str(self.index_dir),
+            "collection": self.collection_name,
+            "embed_model": self.embed_model_name,
+            "embed_batch_size": batch,
+        }
 
     def query(self, query: str, top_k: int = 5) -> dict:
         q = (query or "").strip()
@@ -234,9 +318,10 @@ class KnowledgeStore:
         embedder = self._embedder_instance()
         q_emb = embedder.encode([q]).tolist()[0]
 
+        max_k = int(os.environ.get("PARTSELECT_QUERY_MAX_TOP_K", "12"))
         res = col.query(
             query_embeddings=[q_emb],
-            n_results=max(1, min(int(top_k), 12)),
+            n_results=max(1, min(int(top_k), max_k)),
             include=["documents", "metadatas", "distances"],
         )
 
@@ -245,23 +330,26 @@ class KnowledgeStore:
         metas = (res.get("metadatas") or [[]])[0]
         dists = (res.get("distances") or [[]])[0]
         for doc, meta, dist in zip(docs, metas, dists):
+            m = meta or {}
+            url = m.get("url") or m.get("canonical_url") or ""
             matches.append(
                 {
                     "text": doc,
-                    "source": (meta or {}).get("source", ""),
-                    "meta": meta or {},
+                    "url": url,
+                    "source": m.get("source", ""),
+                    "meta": m,
                     "distance": dist,
                 }
             )
         return {"matches": matches}
 
 
+_STORE: KnowledgeStore | None = None
+
+
 def knowledge_store() -> KnowledgeStore:
-    # Singleton-ish helper (module-level cache).
-    global _STORE  # type: ignore
-    try:
-        return _STORE  # type: ignore
-    except Exception:
-        _STORE = KnowledgeStore()  # type: ignore
-        return _STORE  # type: ignore
+    global _STORE
+    if _STORE is None:
+        _STORE = KnowledgeStore()
+    return _STORE
 
